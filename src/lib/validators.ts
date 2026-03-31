@@ -52,7 +52,7 @@ export const commandSchema = z.object({
   desiredBooleanState: z.boolean().optional(),
   desiredNumericValue: z.number().optional(),
   note: z.string().optional().default(""),
-  overrideMinutes: z.number().int().min(1).max(180).optional().default(30),
+  overrideMinutes: z.number().int().min(1).max(180).optional().default(2),
 });
 
 export const alertQuerySchema = z.object({

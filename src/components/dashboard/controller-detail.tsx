@@ -12,6 +12,7 @@ type Props = {
 };
 
 type Range = "24h" | "7d" | "30d";
+const MANUAL_OVERRIDE_MINUTES = 2;
 
 const DEFAULT_ACTUATOR_LINKS: Record<string, string[]> = {
   tank_level: ["pump"],
@@ -124,10 +125,7 @@ export function ControllerDetail({ initialSnapshot }: Props) {
   const [range, setRange] = useState<Range>("24h");
   const [history, setHistory] = useState<HistoryPoint[]>([]);
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
-  const [modalChannelId, setModalChannelId] = useState<string | null>(null);
-  const [commandNote, setCommandNote] = useState("");
-  const [overrideMinutes, setOverrideMinutes] = useState(30);
-  const [busy, setBusy] = useState(false);
+  const [busyChannelId, setBusyChannelId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
 
   const numericChannels = useMemo(
@@ -182,39 +180,35 @@ export function ControllerDetail({ initialSnapshot }: Props) {
     };
   }, [selectedChannelId, range]);
 
-  const modalChannel = snapshot.controller.channels.find((channel) => channel.id === modalChannelId) ?? null;
   const controlsDisabled = snapshot.controller.status === "offline";
 
-  async function sendCommand(desiredBooleanState: boolean) {
-    if (!modalChannel) {
-      return;
+  async function refreshSnapshot() {
+    const response = await fetch(`/api/controllers/${snapshot.controller.id}`, { cache: "no-store" });
+    if (response.ok) {
+      setSnapshot((await response.json()) as ControllerSnapshot);
     }
-    setBusy(true);
+  }
+
+  async function sendCommand(channel: ChannelView, desiredBooleanState: boolean) {
+    setBusyChannelId(channel.id);
     setMessage("");
-    const response = await fetch(`/api/channels/${modalChannel.id}/commands`, {
+    const response = await fetch(`/api/channels/${channel.id}/commands`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         desiredBooleanState,
-        note: commandNote,
-        overrideMinutes,
+        overrideMinutes: MANUAL_OVERRIDE_MINUTES,
       }),
     });
     const data = await response.json();
     if (!response.ok) {
       setMessage(data.error ?? "Command failed.");
-      setBusy(false);
+      setBusyChannelId(null);
       return;
     }
-    setMessage("Command queued successfully.");
-    setCommandNote("");
-    setOverrideMinutes(30);
-    setModalChannelId(null);
-    setBusy(false);
-    const refresh = await fetch(`/api/controllers/${snapshot.controller.id}`, { cache: "no-store" });
-    if (refresh.ok) {
-      setSnapshot((await refresh.json()) as ControllerSnapshot);
-    }
+    setMessage(`${channel.name} command sent. Manual override expires in ${MANUAL_OVERRIDE_MINUTES} minutes.`);
+    setBusyChannelId(null);
+    await refreshSnapshot();
   }
 
   return (
@@ -234,6 +228,7 @@ export function ControllerDetail({ initialSnapshot }: Props) {
           </a>
         </div>
       </header>
+      {message ? <p className={styles.muted}>{message}</p> : null}
 
       <section className={styles.sensorGrid}>
         {groups.map(({ primary, controls }) => {
@@ -269,9 +264,24 @@ export function ControllerDetail({ initialSnapshot }: Props) {
                             {control.latestBooleanState ? labels.on : labels.off} / {control.channelKey}
                           </p>
                         </div>
-                        <button className={styles.ghostButton} type="button" onClick={() => setModalChannelId(control.id)} disabled={controlsDisabled}>
-                          {labels.on} / {labels.off}
-                        </button>
+                        <div className={styles.controlButtonGroup}>
+                          <button
+                            className={!control.latestBooleanState ? styles.button : styles.ghostButton}
+                            type="button"
+                            onClick={() => void sendCommand(control, false)}
+                            disabled={controlsDisabled || busyChannelId === control.id}
+                          >
+                            {labels.off}
+                          </button>
+                          <button
+                            className={control.latestBooleanState ? styles.button : styles.ghostButton}
+                            type="button"
+                            onClick={() => void sendCommand(control, true)}
+                            disabled={controlsDisabled || busyChannelId === control.id}
+                          >
+                            {labels.on}
+                          </button>
+                        </div>
                       </div>
                     );
                   })}
@@ -305,9 +315,24 @@ export function ControllerDetail({ initialSnapshot }: Props) {
                     <strong>{channel.name}</strong>
                     <p className={styles.small}>{channel.latestBooleanState ? labels.on : labels.off}</p>
                   </div>
-                  <button className={styles.ghostButton} type="button" onClick={() => setModalChannelId(channel.id)} disabled={controlsDisabled}>
-                    {labels.on} / {labels.off}
-                  </button>
+                  <div className={styles.controlButtonGroup}>
+                    <button
+                      className={!channel.latestBooleanState ? styles.button : styles.ghostButton}
+                      type="button"
+                      onClick={() => void sendCommand(channel, false)}
+                      disabled={controlsDisabled || busyChannelId === channel.id}
+                    >
+                      {labels.off}
+                    </button>
+                    <button
+                      className={channel.latestBooleanState ? styles.button : styles.ghostButton}
+                      type="button"
+                      onClick={() => void sendCommand(channel, true)}
+                      disabled={controlsDisabled || busyChannelId === channel.id}
+                    >
+                      {labels.on}
+                    </button>
+                  </div>
                 </div>
               </div>
             </article>
@@ -399,44 +424,6 @@ export function ControllerDetail({ initialSnapshot }: Props) {
           </article>
         </div>
       </section>
-
-      {modalChannel ? (
-        <div className={styles.modalBackdrop}>
-          <div className={styles.modalCard}>
-            <p className={styles.eyebrow}>Manual override</p>
-            <h3>{modalChannel.name}</h3>
-            <div className={styles.formGrid}>
-              <label className={styles.formRow}>
-                <span>Operator note</span>
-                <textarea value={commandNote} onChange={(event) => setCommandNote(event.target.value)} rows={3} placeholder="Reason for override" />
-              </label>
-              <label className={styles.formRow}>
-                <span>Override window (minutes)</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={180}
-                  value={overrideMinutes}
-                  onChange={(event) => setOverrideMinutes(Number(event.target.value) || 30)}
-                />
-              </label>
-              <p className={styles.muted}>This command will be delivered to the controller on its next `/api/device/sync` request.</p>
-              <div className={styles.actions}>
-                <button className={styles.ghostButton} type="button" onClick={() => setModalChannelId(null)}>
-                  Cancel
-                </button>
-                <button className={styles.ghostButton} type="button" onClick={() => void sendCommand(false)} disabled={busy}>
-                  Queue Off / Close
-                </button>
-                <button className={styles.button} type="button" onClick={() => void sendCommand(true)} disabled={busy}>
-                  Queue On / Open
-                </button>
-              </div>
-              {message ? <p className={styles.muted}>{message}</p> : null}
-            </div>
-          </div>
-        </div>
-      ) : null}
     </>
   );
 }

@@ -663,7 +663,7 @@ export function createManualCommand(
       desiredNumericValue: input.desiredNumericValue ?? null,
       note: input.note?.trim() ?? "",
       status: "pending",
-      overrideUntil: addMinutes(new Date(), input.overrideMinutes ?? 30).toISOString(),
+      overrideUntil: addMinutes(new Date(), input.overrideMinutes ?? 2).toISOString(),
       createdAt: nowIso(),
       acknowledgedAt: null,
       deviceMessage: null,
@@ -930,6 +930,7 @@ export function deviceSync(hardwareId: string, deviceKey: string, payload: Devic
   resolveOpenAlerts(controller.userId, controller.id, "offline");
 
   const channelConfig = db.select().from(channels).where(eq(channels.controllerId, controller.id)).orderBy(channels.sortOrder).all();
+  const channelKeyById = new Map(channelConfig.map((channel) => [channel.id, channel.channelKey]));
   const pendingCommands = db
     .select()
     .from(commands)
@@ -959,6 +960,7 @@ export function deviceSync(hardwareId: string, deviceKey: string, payload: Devic
     pendingCommands: pendingCommands.map((command) => ({
       commandId: command.id,
       channelId: command.channelId,
+      channelKey: channelKeyById.get(command.channelId) ?? null,
       commandType: command.commandType,
       desiredBooleanState: command.desiredBooleanState,
       desiredNumericValue: command.desiredNumericValue,
