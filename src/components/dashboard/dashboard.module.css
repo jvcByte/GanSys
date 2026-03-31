@@ -314,13 +314,7 @@
   border: 1px solid rgba(0, 184, 107, 0.1);
 }
 
-.controlButtonGroup {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.controlButtonGroup > button {
+.controlToggleButton {
   min-width: 88px;
 }
 

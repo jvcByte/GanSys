@@ -206,7 +206,9 @@ export function ControllerDetail({ initialSnapshot }: Props) {
       setBusyChannelId(null);
       return;
     }
-    setMessage(`${channel.name} command sent. Manual override expires in ${MANUAL_OVERRIDE_MINUTES} minutes.`);
+    setMessage(
+      `${channel.name} set to ${desiredBooleanState ? "On" : "Off"}. Manual override expires in ${MANUAL_OVERRIDE_MINUTES} minutes.`
+    );
     setBusyChannelId(null);
     await refreshSnapshot();
   }
@@ -255,6 +257,7 @@ export function ControllerDetail({ initialSnapshot }: Props) {
                 <div className={styles.linkedControlList}>
                   {controls.map((control) => {
                     const labels = getControlLabels(control);
+                    const isOn = control.latestBooleanState === true;
 
                     return (
                       <div key={control.id} className={styles.linkedControlCard}>
@@ -264,24 +267,14 @@ export function ControllerDetail({ initialSnapshot }: Props) {
                             {control.latestBooleanState ? labels.on : labels.off} / {control.channelKey}
                           </p>
                         </div>
-                        <div className={styles.controlButtonGroup}>
-                          <button
-                            className={!control.latestBooleanState ? styles.button : styles.ghostButton}
-                            type="button"
-                            onClick={() => void sendCommand(control, false)}
-                            disabled={controlsDisabled || busyChannelId === control.id}
-                          >
-                            {labels.off}
-                          </button>
-                          <button
-                            className={control.latestBooleanState ? styles.button : styles.ghostButton}
-                            type="button"
-                            onClick={() => void sendCommand(control, true)}
-                            disabled={controlsDisabled || busyChannelId === control.id}
-                          >
-                            {labels.on}
-                          </button>
-                        </div>
+                        <button
+                          className={`${isOn ? styles.button : styles.ghostButton} ${styles.controlToggleButton}`}
+                          type="button"
+                          onClick={() => void sendCommand(control, !isOn)}
+                          disabled={controlsDisabled || busyChannelId === control.id}
+                        >
+                          {isOn ? labels.on : labels.off}
+                        </button>
                       </div>
                     );
                   })}
@@ -292,6 +285,7 @@ export function ControllerDetail({ initialSnapshot }: Props) {
         })}
         {standaloneActuators.map((channel) => {
           const labels = getControlLabels(channel);
+          const isOn = channel.latestBooleanState === true;
 
           return (
             <article key={channel.id} className={styles.sensorCard}>
@@ -315,24 +309,14 @@ export function ControllerDetail({ initialSnapshot }: Props) {
                     <strong>{channel.name}</strong>
                     <p className={styles.small}>{channel.latestBooleanState ? labels.on : labels.off}</p>
                   </div>
-                  <div className={styles.controlButtonGroup}>
-                    <button
-                      className={!channel.latestBooleanState ? styles.button : styles.ghostButton}
-                      type="button"
-                      onClick={() => void sendCommand(channel, false)}
-                      disabled={controlsDisabled || busyChannelId === channel.id}
-                    >
-                      {labels.off}
-                    </button>
-                    <button
-                      className={channel.latestBooleanState ? styles.button : styles.ghostButton}
-                      type="button"
-                      onClick={() => void sendCommand(channel, true)}
-                      disabled={controlsDisabled || busyChannelId === channel.id}
-                    >
-                      {labels.on}
-                    </button>
-                  </div>
+                  <button
+                    className={`${isOn ? styles.button : styles.ghostButton} ${styles.controlToggleButton}`}
+                    type="button"
+                    onClick={() => void sendCommand(channel, !isOn)}
+                    disabled={controlsDisabled || busyChannelId === channel.id}
+                  >
+                    {isOn ? labels.on : labels.off}
+                  </button>
                 </div>
               </div>
             </article>
