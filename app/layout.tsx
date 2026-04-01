@@ -1,7 +1,5 @@
 import type { Metadata } from "next";
 
-import { seedDemoData } from "@/lib/data";
-
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -11,8 +9,9 @@ export const metadata: Metadata = {
 
 export const dynamic = "force-dynamic";
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   if (process.env.NODE_ENV !== "production" || process.env.SEED_DEMO_DATA === "true") {
+    const { seedDemoData } = await import("@/lib/data");
     seedDemoData();
   }
 
