@@ -35,6 +35,21 @@ http://localhost:3000
 
 This app can be exposed on the public internet, but it should be run as a persistent Node.js server because it uses SQLite via `better-sqlite3`.
 
+### Railway Deployment
+
+This repository includes a `railway.json` file so Railway uses the correct build command, start command, and a healthcheck path that returns HTTP `200`.
+
+Use these service settings on Railway:
+
+- Attach a persistent volume for SQLite.
+- Mount the volume to `/app/data` or another writable path.
+- Keep the healthcheck path on `/api/health`.
+- Do not point the healthcheck at `/` because this app redirects from `/` and Railway healthchecks require a `200` response.
+
+This app automatically uses `RAILWAY_VOLUME_MOUNT_PATH` when Railway provides it, so a mounted volume becomes the database directory without extra code changes.
+
+If Railway logs show a permission error when opening the SQLite file on the mounted volume, set `RAILWAY_RUN_UID=0` on the service. Railway volumes are mounted as `root`, and non-root containers can fail to write there.
+
 ### Recommended Production Setup
 
 Use a VPS, cloud VM, or any server where you control:
