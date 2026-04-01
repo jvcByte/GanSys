@@ -4,16 +4,39 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
-type Props = {
-  target: string;
-};
-
-export function HomeRedirect({ target }: Props) {
+export function HomeRedirect() {
   const router = useRouter();
 
   useEffect(() => {
-    router.replace(target);
-  }, [router, target]);
+    let isActive = true;
+
+    async function resolveTarget() {
+      try {
+        const response = await fetch("/api/auth/session", { cache: "no-store" });
+        if (!isActive) {
+          return;
+        }
+
+        if (!response.ok) {
+          router.replace("/login");
+          return;
+        }
+
+        const data = (await response.json()) as { user: unknown | null };
+        router.replace(data.user ? "/dashboard" : "/login");
+      } catch {
+        if (isActive) {
+          router.replace("/login");
+        }
+      }
+    }
+
+    void resolveTarget();
+
+    return () => {
+      isActive = false;
+    };
+  }, [router]);
 
   return (
     <main
@@ -28,7 +51,7 @@ export function HomeRedirect({ target }: Props) {
       <div>
         <p>Redirecting...</p>
         <p>
-          <Link href={target}>Continue</Link>
+          <Link href="/login">Continue</Link>
         </p>
       </div>
     </main>
