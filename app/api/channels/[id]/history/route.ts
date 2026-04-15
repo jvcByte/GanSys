@@ -16,7 +16,7 @@ export async function GET(request: Request, context: Context) {
     const query = historyQuerySchema.parse({
       range: url.searchParams.get("range") ?? "24h",
     });
-    return jsonOk({ points: getChannelHistory(user.id, id, query.range) });
+    return jsonOk({ points: await getChannelHistory(user.id, id, query.range) });
   } catch (error) {
     return jsonError(error);
   }

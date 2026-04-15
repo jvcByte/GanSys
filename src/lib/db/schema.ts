@@ -1,6 +1,6 @@
-import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { boolean, doublePrecision, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
-export const users = sqliteTable(
+export const users = pgTable(
   "users",
   {
     id: text("id").primaryKey(),
@@ -9,26 +9,26 @@ export const users = sqliteTable(
     passwordHash: text("password_hash").notNull(),
     farmName: text("farm_name").notNull(),
     location: text("location").notNull(),
-    createdAt: text("created_at").notNull(),
-    updatedAt: text("updated_at").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
   },
   (table) => [uniqueIndex("users_email_idx").on(table.email)]
 );
 
-export const sessions = sqliteTable(
+export const sessions = pgTable(
   "sessions",
   {
     id: text("id").primaryKey(),
     userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
     tokenHash: text("token_hash").notNull(),
-    createdAt: text("created_at").notNull(),
-    expiresAt: text("expires_at").notNull(),
-    lastSeenAt: text("last_seen_at").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
   },
   (table) => [uniqueIndex("sessions_token_hash_idx").on(table.tokenHash), index("sessions_user_id_idx").on(table.userId)]
 );
 
-export const controllers = sqliteTable(
+export const controllers = pgTable(
   "controllers",
   {
     id: text("id").primaryKey(),
@@ -40,10 +40,10 @@ export const controllers = sqliteTable(
     description: text("description").notNull().default(""),
     firmwareVersion: text("firmware_version").notNull().default("unknown"),
     heartbeatIntervalSec: integer("heartbeat_interval_sec").notNull().default(60),
-    lastSeenAt: text("last_seen_at"),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
     status: text("status").notNull().default("offline"),
-    createdAt: text("created_at").notNull(),
-    updatedAt: text("updated_at").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
   },
   (table) => [
     uniqueIndex("controllers_hardware_id_idx").on(table.hardwareId),
@@ -51,7 +51,7 @@ export const controllers = sqliteTable(
   ]
 );
 
-export const channels = sqliteTable(
+export const channels = pgTable(
   "channels",
   {
     id: text("id").primaryKey(),
@@ -61,21 +61,21 @@ export const channels = sqliteTable(
     template: text("template").notNull(),
     kind: text("kind").notNull(),
     unit: text("unit").notNull(),
-    minValue: real("min_value").notNull(),
-    maxValue: real("max_value").notNull(),
-    latestNumericValue: real("latest_numeric_value"),
-    latestBooleanState: integer("latest_boolean_state", { mode: "boolean" }),
+    minValue: doublePrecision("min_value").notNull(),
+    maxValue: doublePrecision("max_value").notNull(),
+    latestNumericValue: doublePrecision("latest_numeric_value"),
+    latestBooleanState: boolean("latest_boolean_state"),
     latestStatus: text("latest_status").notNull().default("unknown"),
-    lastSampleAt: text("last_sample_at"),
-    thresholdLow: real("threshold_low"),
-    thresholdHigh: real("threshold_high"),
-    warningLow: real("warning_low"),
-    warningHigh: real("warning_high"),
+    lastSampleAt: timestamp("last_sample_at", { withTimezone: true }),
+    thresholdLow: doublePrecision("threshold_low"),
+    thresholdHigh: doublePrecision("threshold_high"),
+    warningLow: doublePrecision("warning_low"),
+    warningHigh: doublePrecision("warning_high"),
     configJson: text("config_json").notNull().default("{}"),
     calibrationJson: text("calibration_json").notNull().default("{}"),
     sortOrder: integer("sort_order").notNull().default(0),
-    createdAt: text("created_at").notNull(),
-    updatedAt: text("updated_at").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
   },
   (table) => [
     uniqueIndex("channels_controller_key_idx").on(table.controllerId, table.channelKey),
@@ -83,15 +83,15 @@ export const channels = sqliteTable(
   ]
 );
 
-export const telemetrySamples = sqliteTable(
+export const telemetrySamples = pgTable(
   "telemetry_samples",
   {
     id: text("id").primaryKey(),
     channelId: text("channel_id").notNull().references(() => channels.id, { onDelete: "cascade" }),
-    recordedAt: text("recorded_at").notNull(),
-    numericValue: real("numeric_value"),
-    booleanState: integer("boolean_state", { mode: "boolean" }),
-    rawValue: real("raw_value"),
+    recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull(),
+    numericValue: doublePrecision("numeric_value"),
+    booleanState: boolean("boolean_state"),
+    rawValue: doublePrecision("raw_value"),
     rawUnit: text("raw_unit"),
     status: text("status").notNull().default("ok"),
     payloadJson: text("payload_json").notNull().default("{}"),
@@ -99,7 +99,7 @@ export const telemetrySamples = sqliteTable(
   (table) => [index("telemetry_channel_recorded_idx").on(table.channelId, table.recordedAt)]
 );
 
-export const commands = sqliteTable(
+export const commands = pgTable(
   "commands",
   {
     id: text("id").primaryKey(),
@@ -107,13 +107,13 @@ export const commands = sqliteTable(
     channelId: text("channel_id").notNull().references(() => channels.id, { onDelete: "cascade" }),
     requestedByUserId: text("requested_by_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
     commandType: text("command_type").notNull(),
-    desiredBooleanState: integer("desired_boolean_state", { mode: "boolean" }),
-    desiredNumericValue: real("desired_numeric_value"),
+    desiredBooleanState: boolean("desired_boolean_state"),
+    desiredNumericValue: doublePrecision("desired_numeric_value"),
     note: text("note").notNull().default(""),
     status: text("status").notNull().default("pending"),
-    overrideUntil: text("override_until"),
-    createdAt: text("created_at").notNull(),
-    acknowledgedAt: text("acknowledged_at"),
+    overrideUntil: timestamp("override_until", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
     deviceMessage: text("device_message"),
   },
   (table) => [
@@ -123,7 +123,7 @@ export const commands = sqliteTable(
   ]
 );
 
-export const alerts = sqliteTable(
+export const alerts = pgTable(
   "alerts",
   {
     id: text("id").primaryKey(),
@@ -135,8 +135,8 @@ export const alerts = sqliteTable(
     title: text("title").notNull(),
     message: text("message").notNull(),
     status: text("status").notNull().default("open"),
-    openedAt: text("opened_at").notNull(),
-    resolvedAt: text("resolved_at"),
+    openedAt: timestamp("opened_at", { withTimezone: true }).notNull(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
     metaJson: text("meta_json").notNull().default("{}"),
   },
   (table) => [
@@ -144,4 +144,23 @@ export const alerts = sqliteTable(
     index("alerts_controller_id_idx").on(table.controllerId),
     index("alerts_status_idx").on(table.status),
   ]
+);
+
+export const pestControlSchedules = pgTable(
+  "pest_control_schedules",
+  {
+    id: text("id").primaryKey(),
+    controllerId: text("controller_id")
+      .notNull()
+      .references(() => controllers.id, { onDelete: "cascade" }),
+    enabled: boolean("enabled").notNull().default(true),
+    sprayEntries: jsonb("spray_entries")
+      .$type<Array<{ startTime: string; durationMinutes: number }>>()
+      .notNull()
+      .default([]),
+    uvStartTime: text("uv_start_time"),
+    uvEndTime: text("uv_end_time"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [uniqueIndex("pest_schedules_controller_idx").on(table.controllerId)]
 );
