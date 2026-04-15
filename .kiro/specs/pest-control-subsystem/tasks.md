@@ -65,7 +65,7 @@ Restructure the project for production-grade development, migrate the database f
     - Verify timestamp columns use `withTimezone: true`
     - _Requirements: 8.4_
 
-- [ ] 2. Add new channel templates and setup presets
+- [-] 2. Add new channel templates and setup presets
   - [ ] 2.1 Add `spray_pump`, `uv_zapper`, `camera_snapshot` templates to `src/lib/templates.ts`
     - Extend `ChannelTemplateId` union with `"spray_pump" | "uv_zapper" | "camera_snapshot"`
     - Add `spray_pump` template: `kind: "actuator"`, `unit: "state"`, `config: { onLabel: "Spraying", offLabel: "Idle", display: "toggle" }`

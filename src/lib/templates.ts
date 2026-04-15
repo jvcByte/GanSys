@@ -8,6 +8,9 @@ export type ChannelTemplateId =
   | "flush_valve"
   | "inlet_valve"
   | "battery_voltage"
+  | "spray_pump"
+  | "uv_zapper"
+  | "camera_snapshot"
   | "custom";
 
 export type ChannelKind = "sensor" | "actuator" | "hybrid";
@@ -35,7 +38,7 @@ export type SetupChannelPreset = {
 };
 
 export type SetupPreset = {
-  id: "custom" | "tank_automation" | "irrigation_zone" | "aquaculture_tank" | "full_gansystems";
+  id: "custom" | "tank_automation" | "irrigation_zone" | "aquaculture_tank" | "full_gansystems" | "pest_control";
   label: string;
   description: string;
   channels: SetupChannelPreset[];
