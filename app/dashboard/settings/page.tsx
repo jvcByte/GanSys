@@ -9,6 +9,6 @@ export default async function SettingsPage() {
   if (!user) {
     return null;
   }
-  const snapshot = getDashboardSnapshot(user.id);
+  const snapshot = await getDashboardSnapshot(user.id);
   return <SettingsView initialSnapshot={snapshot} />;
 }

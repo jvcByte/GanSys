@@ -8,12 +8,10 @@ import { getBucketSize, getRangeStart, toJson } from "@/lib/utils";
 import { resolveOpenAlerts, upsertOpenAlert } from "./alert.service";
 import { getChannelOwnedByUser } from "./channel.service";
 
-function nowIso() {
-  return new Date().toISOString();
-}
+function now() { return new Date(); }
 
 export async function getChannelHistory(userId: string, channelId: string, range: "24h" | "7d" | "30d"): Promise<HistoryPoint[]> {
-  getChannelOwnedByUser(userId, channelId);
+  await getChannelOwnedByUser(userId, channelId);
   const start = getRangeStart(range).toISOString();
   const bucketSec = getBucketSize(range);
 
@@ -36,29 +34,35 @@ export async function getChannelHistory(userId: string, channelId: string, range
   }));
 }
 
-export function evaluateThresholdAlerts(userId: string, controllerId: string, channel: typeof channels.$inferSelect, numericValue: number | null) {
+export async function evaluateThresholdAlerts(
+  userId: string, controllerId: string,
+  channel: typeof channels.$inferSelect, numericValue: number | null
+) {
   if (numericValue === null) return;
   const isCritical =
     (channel.thresholdLow !== null && numericValue < channel.thresholdLow) ||
     (channel.thresholdHigh !== null && numericValue > channel.thresholdHigh);
-  const isWarning =
-    !isCritical &&
-    ((channel.warningLow !== null && numericValue < channel.warningLow) ||
-      (channel.warningHigh !== null && numericValue > channel.warningHigh));
+  const isWarning = !isCritical && (
+    (channel.warningLow !== null && numericValue < channel.warningLow) ||
+    (channel.warningHigh !== null && numericValue > channel.warningHigh)
+  );
 
   if (isCritical) {
-    upsertOpenAlert({ userId, controllerId, channelId: channel.id, type: "threshold", severity: "critical", title: `${channel.name} crossed a critical threshold`, message: `${channel.name} reported ${numericValue} ${channel.unit}.` });
-    return;
+    await upsertOpenAlert({ userId, controllerId, channelId: channel.id, type: "threshold", severity: "critical", title: `${channel.name} crossed a critical threshold`, message: `${channel.name} reported ${numericValue} ${channel.unit}.` });
+  } else if (isWarning) {
+    await upsertOpenAlert({ userId, controllerId, channelId: channel.id, type: "threshold", severity: "warning", title: `${channel.name} crossed a warning threshold`, message: `${channel.name} reported ${numericValue} ${channel.unit}.` });
+  } else {
+    await resolveOpenAlerts(userId, controllerId, "threshold", channel.id);
   }
-  if (isWarning) {
-    upsertOpenAlert({ userId, controllerId, channelId: channel.id, type: "threshold", severity: "warning", title: `${channel.name} crossed a warning threshold`, message: `${channel.name} reported ${numericValue} ${channel.unit}.` });
-    return;
-  }
-  resolveOpenAlerts(userId, controllerId, "threshold", channel.id);
 }
 
-export function evaluateFaultAlerts(userId: string, controllerId: string, channel: typeof channels.$inferSelect) {
-  const recent = db.select().from(telemetrySamples).where(eq(telemetrySamples.channelId, channel.id)).orderBy(desc(telemetrySamples.recordedAt)).limit(5).all();
+export async function evaluateFaultAlerts(
+  userId: string, controllerId: string, channel: typeof channels.$inferSelect
+) {
+  const recent = await db.select().from(telemetrySamples)
+    .where(eq(telemetrySamples.channelId, channel.id))
+    .orderBy(desc(telemetrySamples.recordedAt))
+    .limit(5);
 
   let fault = false;
   let message = `${channel.name} looks healthy.`;
@@ -73,54 +77,52 @@ export function evaluateFaultAlerts(userId: string, controllerId: string, channe
   }
 
   if (fault) {
-    upsertOpenAlert({ userId, controllerId, channelId: channel.id, type: "sensor_fault", severity: "critical", title: `${channel.name} sensor fault`, message });
+    await upsertOpenAlert({ userId, controllerId, channelId: channel.id, type: "sensor_fault", severity: "critical", title: `${channel.name} sensor fault`, message });
   } else {
-    resolveOpenAlerts(userId, controllerId, "sensor_fault", channel.id);
+    await resolveOpenAlerts(userId, controllerId, "sensor_fault", channel.id);
   }
 }
 
-export function applyReadings(
+export async function applyReadings(
   userId: string,
   controller: { id: string },
-  readings: Array<{ channelKey: string; numericValue?: number; booleanState?: boolean; rawValue?: number; rawUnit?: string; status?: string; payload?: Record<string, unknown> }>
+  readings: Array<{
+    channelKey: string; numericValue?: number; booleanState?: boolean;
+    rawValue?: number; rawUnit?: string; status?: string; payload?: Record<string, unknown>;
+  }>
 ) {
+  const allChannels = await db.select().from(channels).where(eq(channels.controllerId, controller.id));
+  const channelByKey = new Map(allChannels.map((c) => [c.channelKey, c]));
+
   for (const reading of readings) {
-    const channel = db
-      .select()
-      .from(channels)
-      .where(eq(channels.controllerId, controller.id))
-      .all()
-      .find((c) => c.channelKey === reading.channelKey);
+    const channel = channelByKey.get(reading.channelKey);
     if (!channel) continue;
 
-    const timestamp = nowIso();
-    db.insert(telemetrySamples)
-      .values({
-        id: createId("sample"),
-        channelId: channel.id,
-        recordedAt: timestamp,
-        numericValue: reading.numericValue ?? null,
-        booleanState: reading.booleanState ?? null,
-        rawValue: reading.rawValue ?? null,
-        rawUnit: reading.rawUnit ?? null,
-        status: reading.status ?? "ok",
-        payloadJson: toJson(reading.payload ?? {}),
-      })
-      .run();
+    const timestamp = now();
+    await db.insert(telemetrySamples).values({
+      id: createId("sample"),
+      channelId: channel.id,
+      recordedAt: timestamp,
+      numericValue: reading.numericValue ?? null,
+      booleanState: reading.booleanState ?? null,
+      rawValue: reading.rawValue ?? null,
+      rawUnit: reading.rawUnit ?? null,
+      status: reading.status ?? "ok",
+      payloadJson: toJson(reading.payload ?? {}),
+    });
 
-    db.update(channels)
-      .set({
-        latestNumericValue: reading.numericValue ?? channel.latestNumericValue,
-        latestBooleanState: reading.booleanState ?? channel.latestBooleanState,
-        latestStatus: reading.status ?? "ok",
-        lastSampleAt: timestamp,
-        updatedAt: timestamp,
-      })
-      .where(eq(channels.id, channel.id))
-      .run();
+    await db.update(channels).set({
+      latestNumericValue: reading.numericValue ?? channel.latestNumericValue,
+      latestBooleanState: reading.booleanState ?? channel.latestBooleanState,
+      latestStatus: reading.status ?? "ok",
+      lastSampleAt: timestamp,
+      updatedAt: timestamp,
+    }).where(eq(channels.id, channel.id));
 
-    const nextChannel = db.select().from(channels).where(eq(channels.id, channel.id)).get()!;
-    evaluateThresholdAlerts(userId, controller.id, nextChannel, reading.numericValue ?? null);
-    evaluateFaultAlerts(userId, controller.id, nextChannel);
+    const updated = await db.select().from(channels).where(eq(channels.id, channel.id));
+    if (updated[0]) {
+      await evaluateThresholdAlerts(userId, controller.id, updated[0], reading.numericValue ?? null);
+      await evaluateFaultAlerts(userId, controller.id, updated[0]);
+    }
   }
 }

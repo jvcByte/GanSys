@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -12,7 +13,9 @@ export function AuthForm({ mode }: { mode: Mode }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  async function handleSubmit(formData: FormData) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    // Read form data synchronously before any await
+    const formData = new FormData(e.currentTarget);
     setLoading(true);
     setError("");
     const payload =
@@ -65,17 +68,17 @@ export function AuthForm({ mode }: { mode: Mode }) {
           </p>
           <div className={styles.brandStats}>
             <div className={styles.statCard}>
-              <p style={{ margin: 0, fontSize: "0.72rem", color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Tank</p>
+              <p className={styles.statLabel}>Tank</p>
               <strong>68%</strong>
               <span>Live reservoir tracking</span>
             </div>
             <div className={styles.statCard}>
-              <p style={{ margin: 0, fontSize: "0.72rem", color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Soil</p>
+              <p className={styles.statLabel}>Soil</p>
               <strong>47%</strong>
               <span>Precision irrigation</span>
             </div>
             <div className={styles.statCard}>
-              <p style={{ margin: 0, fontSize: "0.72rem", color: "var(--muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>ESP32</p>
+              <p className={styles.statLabel}>ESP32</p>
               <strong>Online</strong>
               <span>Controller fleet</span>
             </div>
@@ -93,7 +96,10 @@ export function AuthForm({ mode }: { mode: Mode }) {
             {mode === "login" ? "Sign in to GanSystems" : "Create your workspace"}
           </h2>
 
-          <form className={styles.form} action={async (fd) => { await handleSubmit(fd); }}>
+          <form className={styles.form} onSubmit={(e) => {
+            e.preventDefault();
+            void handleSubmit(e);
+          }}>
             {mode === "signup" && (
               <>
                 <label className={styles.row}>
@@ -142,8 +148,8 @@ export function AuthForm({ mode }: { mode: Mode }) {
 
           <p className={styles.links}>
             {mode === "login"
-              ? <><a href="/signup">Don&apos;t have an account? Sign up</a></>
-              : <><a href="/login">Already have an account? Sign in</a></>}
+              ? <Link href="/signup">Don&apos;t have an account? Sign up</Link>
+              : <Link href="/login">Already have an account? Sign in</Link>}
           </p>
         </div>
       </div>

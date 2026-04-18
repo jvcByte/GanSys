@@ -18,9 +18,7 @@ export function hashPassword(password: string) {
 
 export function verifyPassword(password: string, storedHash: string) {
   const [salt, originalHash] = storedHash.split(":");
-  if (!salt || !originalHash) {
-    return false;
-  }
+  if (!salt || !originalHash) return false;
   const nextHash = crypto.pbkdf2Sync(password, salt, PASSWORD_ITERATIONS, 32, "sha256").toString("hex");
   return crypto.timingSafeEqual(Buffer.from(originalHash, "hex"), Buffer.from(nextHash, "hex"));
 }
@@ -48,27 +46,27 @@ function toSessionUser(value: typeof users.$inferSelect): SessionUser {
     email: value.email,
     farmName: value.farmName,
     location: value.location,
-    createdAt: value.createdAt,
-    updatedAt: value.updatedAt,
+    createdAt: value.createdAt instanceof Date ? value.createdAt.toISOString() : String(value.createdAt),
+    updatedAt: value.updatedAt instanceof Date ? value.updatedAt.toISOString() : String(value.updatedAt),
   };
 }
 
 export async function createSession(userId: string) {
   const token = createSecret();
   const tokenHash = hashToken(token);
-  const now = new Date().toISOString();
-  const expiresAt = addDays(new Date(), 14).toISOString();
-  db.insert(sessions)
-    .values({
-      id: createId("session"),
-      userId,
-      tokenHash,
-      createdAt: now,
-      expiresAt,
-      lastSeenAt: now,
-    })
-    .run();
-  return { token, expiresAt };
+  const now = new Date();
+  const expiresAt = addDays(now, 14);
+
+  await db.insert(sessions).values({
+    id: createId("session"),
+    userId,
+    tokenHash,
+    createdAt: now,
+    expiresAt,
+    lastSeenAt: now,
+  });
+
+  return { token, expiresAt: expiresAt.toISOString() };
 }
 
 export async function setSessionCookie(token: string, expiresAt: string) {
@@ -92,48 +90,52 @@ export async function getSessionToken() {
   return store.get(SESSION_COOKIE)?.value ?? null;
 }
 
-export async function getCurrentUser() {
+export async function getCurrentUser(): Promise<SessionUser | null> {
   const token = await getSessionToken();
-  if (!token) {
-    return null;
-  }
+  if (!token) return null;
+
   const tokenHash = hashToken(token);
-  const session = db
+  const now = new Date();
+
+  const rows = await db
     .select()
     .from(sessions)
-    .where(and(eq(sessions.tokenHash, tokenHash), gt(sessions.expiresAt, new Date().toISOString())))
-    .get();
+    .where(and(eq(sessions.tokenHash, tokenHash), gt(sessions.expiresAt, now)));
 
+  const session = rows[0];
   if (!session) {
     await clearSessionCookie();
     return null;
   }
 
-  db.update(sessions).set({ lastSeenAt: new Date().toISOString() }).where(eq(sessions.id, session.id)).run();
-  const user = db.select().from(users).where(eq(users.id, session.userId)).get();
+  await db.update(sessions).set({ lastSeenAt: now }).where(eq(sessions.id, session.id));
+
+  const userRows = await db.select().from(users).where(eq(users.id, session.userId));
+  const user = userRows[0];
   if (!user) {
     await clearSessionCookie();
     return null;
   }
+
   return toSessionUser(user);
 }
 
 export async function requireCurrentUser() {
   const user = await getCurrentUser();
-  if (!user) {
-    throw new Error("Authentication required");
-  }
+  if (!user) throw new Error("Authentication required");
   return user;
 }
 
-export function findUserByEmail(email: string) {
-  return db.select().from(users).where(eq(users.email, normalizeEmail(email))).get();
+export async function findUserByEmail(email: string) {
+  const result = await db.select().from(users).where(eq(users.email, normalizeEmail(email)));
+  // Neon HTTP driver may return a result object — extract the rows array explicitly
+  const rows = Array.isArray(result) ? result : (result as { rows?: unknown[] }).rows ?? [];
+  return (rows[0] as typeof users.$inferSelect | undefined) ?? null;
 }
 
-export function deleteSessionByToken(token: string) {
-  db.delete(sessions).where(eq(sessions.tokenHash, hashToken(token))).run();
+export async function deleteSessionByToken(token: string) {
+  await db.delete(sessions).where(eq(sessions.tokenHash, hashToken(token)));
 }
-
 export function sanitizeUser(user: typeof users.$inferSelect): SessionUser {
   return toSessionUser(user);
 }

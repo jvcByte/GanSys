@@ -1,13 +1,12 @@
+import { and, desc, eq, inArray } from "drizzle-orm";
+
 import { createId } from "@/lib/auth";
 import { db } from "@/lib/db/client";
 import { channels, pestControlSchedules, telemetrySamples } from "@/lib/db/schema";
 import type { PestControlSchedule, PestLogEntry, SnapshotPayload } from "@/lib/types";
-import { eq, desc, and, inArray } from "drizzle-orm";
 import { getControllerOwnedByUser } from "./controller.service";
 
-function nowIso() {
-  return new Date().toISOString();
-}
+function now() { return new Date(); }
 
 function hydrateSchedule(row: typeof pestControlSchedules.$inferSelect): PestControlSchedule {
   return {
@@ -20,13 +19,13 @@ function hydrateSchedule(row: typeof pestControlSchedules.$inferSelect): PestCon
   };
 }
 
-export function getPestSchedule(userId: string, controllerId: string): PestControlSchedule | null {
-  getControllerOwnedByUser(userId, controllerId);
-  const row = db.select().from(pestControlSchedules).where(eq(pestControlSchedules.controllerId, controllerId)).get();
-  return row ? hydrateSchedule(row) : null;
+export async function getPestSchedule(userId: string, controllerId: string): Promise<PestControlSchedule | null> {
+  await getControllerOwnedByUser(userId, controllerId);
+  const rows = await db.select().from(pestControlSchedules).where(eq(pestControlSchedules.controllerId, controllerId));
+  return rows[0] ? hydrateSchedule(rows[0]) : null;
 }
 
-export function upsertPestSchedule(
+export async function upsertPestSchedule(
   userId: string,
   controllerId: string,
   input: {
@@ -35,74 +34,55 @@ export function upsertPestSchedule(
     uvStartTime?: string | null;
     uvEndTime?: string | null;
   }
-): PestControlSchedule {
-  getControllerOwnedByUser(userId, controllerId);
+): Promise<PestControlSchedule> {
+  await getControllerOwnedByUser(userId, controllerId);
+  const existing = await db.select().from(pestControlSchedules).where(eq(pestControlSchedules.controllerId, controllerId));
+  const timestamp = now();
 
-  const existing = db.select().from(pestControlSchedules).where(eq(pestControlSchedules.controllerId, controllerId)).get();
-  const now = new Date();
-
-  if (existing) {
-    db.update(pestControlSchedules)
-      .set({
-        enabled: input.enabled,
-        sprayEntries: input.sprayEntries,
-        uvStartTime: input.uvStartTime ?? null,
-        uvEndTime: input.uvEndTime ?? null,
-        updatedAt: now,
-      })
-      .where(eq(pestControlSchedules.controllerId, controllerId))
-      .run();
+  if (existing[0]) {
+    await db.update(pestControlSchedules).set({
+      enabled: input.enabled,
+      sprayEntries: input.sprayEntries,
+      uvStartTime: input.uvStartTime ?? null,
+      uvEndTime: input.uvEndTime ?? null,
+      updatedAt: timestamp,
+    }).where(eq(pestControlSchedules.controllerId, controllerId));
   } else {
-    db.insert(pestControlSchedules)
-      .values({
-        id: createId("sched"),
-        controllerId,
-        enabled: input.enabled,
-        sprayEntries: input.sprayEntries,
-        uvStartTime: input.uvStartTime ?? null,
-        uvEndTime: input.uvEndTime ?? null,
-        updatedAt: now,
-      })
-      .run();
+    await db.insert(pestControlSchedules).values({
+      id: createId("sched"),
+      controllerId,
+      enabled: input.enabled,
+      sprayEntries: input.sprayEntries,
+      uvStartTime: input.uvStartTime ?? null,
+      uvEndTime: input.uvEndTime ?? null,
+      updatedAt: timestamp,
+    });
   }
 
-  const saved = db.select().from(pestControlSchedules).where(eq(pestControlSchedules.controllerId, controllerId)).get()!;
-  return hydrateSchedule(saved);
+  const saved = await db.select().from(pestControlSchedules).where(eq(pestControlSchedules.controllerId, controllerId));
+  return hydrateSchedule(saved[0]!);
 }
 
-export function getPestControlLog(controllerId: string, limit = 20): PestLogEntry[] {
-  const pestChannels = db
-    .select()
-    .from(channels)
-    .where(
-      and(
-        eq(channels.controllerId, controllerId),
-        inArray(channels.template, ["spray_pump", "uv_zapper"])
-      )
-    )
-    .all();
-
+export async function getPestControlLog(controllerId: string, limit = 20): Promise<PestLogEntry[]> {
+  const pestChannels = await db.select().from(channels).where(
+    and(eq(channels.controllerId, controllerId), inArray(channels.template, ["spray_pump", "uv_zapper"]))
+  );
   if (!pestChannels.length) return [];
 
   const channelIds = pestChannels.map((c) => c.id);
   const channelNameById = new Map(pestChannels.map((c) => [c.id, c.name]));
 
-  const samples = db
-    .select()
-    .from(telemetrySamples)
+  const samples = await db.select().from(telemetrySamples)
     .where(inArray(telemetrySamples.channelId, channelIds))
     .orderBy(desc(telemetrySamples.recordedAt))
-    .limit(limit)
-    .all();
+    .limit(limit);
 
   return samples.map((sample) => {
     let activationType: "manual" | "scheduled" = "manual";
     try {
       const payload = JSON.parse(sample.payloadJson ?? "{}") as Record<string, unknown>;
       if (payload.source === "scheduled") activationType = "scheduled";
-    } catch {
-      // default to manual
-    }
+    } catch { /* default to manual */ }
 
     return {
       channelId: sample.channelId,
@@ -114,40 +94,29 @@ export function getPestControlLog(controllerId: string, limit = 20): PestLogEntr
   });
 }
 
-export function getLatestSnapshots(controllerId: string): Record<string, SnapshotPayload> {
-  const cameraChannels = db
-    .select()
-    .from(channels)
-    .where(and(eq(channels.controllerId, controllerId), eq(channels.template, "camera_snapshot")))
-    .all();
-
+export async function getLatestSnapshots(controllerId: string): Promise<Record<string, SnapshotPayload>> {
+  const cameraChannels = await db.select().from(channels).where(
+    and(eq(channels.controllerId, controllerId), eq(channels.template, "camera_snapshot"))
+  );
   if (!cameraChannels.length) return {};
 
   const result: Record<string, SnapshotPayload> = {};
-
   for (const channel of cameraChannels) {
-    const latest = db
-      .select()
-      .from(telemetrySamples)
+    const rows = await db.select().from(telemetrySamples)
       .where(eq(telemetrySamples.channelId, channel.id))
       .orderBy(desc(telemetrySamples.recordedAt))
-      .limit(1)
-      .get();
+      .limit(1);
 
-    if (!latest) continue;
-
+    if (!rows[0]) continue;
     try {
-      const payload = JSON.parse(latest.payloadJson ?? "{}") as Record<string, unknown>;
+      const payload = JSON.parse(rows[0].payloadJson ?? "{}") as Record<string, unknown>;
       if (payload.imageUrl || payload.imageBase64) {
         result[channel.id] = {
           imageUrl: typeof payload.imageUrl === "string" ? payload.imageUrl : null,
           imageBase64: typeof payload.imageBase64 === "string" ? payload.imageBase64 : null,
         };
       }
-    } catch {
-      // skip malformed payload
-    }
+    } catch { /* skip */ }
   }
-
   return result;
 }

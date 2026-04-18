@@ -8,14 +8,12 @@ export const runtime = "nodejs";
 export async function POST(request: Request) {
   try {
     const body = loginSchema.parse(await request.json());
-    const user = loginUser(body);
+    const user = await loginUser(body);
     const session = await createSession(user.id);
     await setSessionCookie(session.token, session.expiresAt);
     return jsonOk({ user });
   } catch (error) {
-    if (error instanceof SyntaxError) {
-      return jsonError(new ApiError("Invalid JSON payload.", 400));
-    }
+    if (error instanceof SyntaxError) return jsonError(new ApiError("Invalid JSON payload.", 400));
     return jsonError(error);
   }
 }

@@ -9,6 +9,6 @@ export default async function DashboardPage() {
   if (!user) {
     return null;
   }
-  const snapshot = getDashboardSnapshot(user.id);
+  const snapshot = await getDashboardSnapshot(user.id);
   return <DashboardHome initialSnapshot={snapshot} />;
 }

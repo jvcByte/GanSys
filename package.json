@@ -6,7 +6,8 @@
     "node": ">=20.9.0"
   },
   "scripts": {
-    "dev": "tsx server.ts",
+    "dev": "next dev",
+    "dev:server": "tsx server.ts",
     "build": "next build",
     "start": "node scripts/start-standalone.js",
     "lint": "eslint .",
@@ -33,6 +34,7 @@
     "@types/react-dom": "^19.0.4",
     "@types/ws": "^8.5.13",
     "@vitejs/plugin-react": "^4.3.4",
+    "dotenv": "^17.4.2",
     "drizzle-kit": "^0.30.4",
     "eslint": "^9.22.0",
     "eslint-config-next": "^16.2.2",

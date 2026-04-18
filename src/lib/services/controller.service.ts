@@ -3,24 +3,19 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 
 import { createId, createSecret, hashToken } from "@/lib/auth";
 import { db } from "@/lib/db/client";
-import { alerts, channels, controllers } from "@/lib/db/schema";
+import { channels, controllers } from "@/lib/db/schema";
 import type { AlertView, ControllerCard } from "@/lib/types";
 import { getOpenAlertsByController, resolveOpenAlerts, upsertOpenAlert } from "./alert.service";
 import { hydrateChannel } from "./channel.service";
 
 type ControllerInput = {
-  name: string;
-  hardwareId: string;
-  location: string;
-  description?: string;
-  heartbeatIntervalSec?: number;
+  name: string; hardwareId: string; location: string;
+  description?: string; heartbeatIntervalSec?: number;
 };
 
-function nowIso() {
-  return new Date().toISOString();
-}
+function now() { return new Date(); }
 
-export function computeControllerStatus(lastSeenAt: string | null, heartbeatIntervalSec: number): "online" | "stale" | "offline" {
+export function computeControllerStatus(lastSeenAt: string | Date | null, heartbeatIntervalSec: number): "online" | "stale" | "offline" {
   if (!lastSeenAt) return "offline";
   const age = differenceInSeconds(new Date(), new Date(lastSeenAt));
   if (age <= heartbeatIntervalSec) return "online";
@@ -41,10 +36,10 @@ export function buildControllerCard(
     description: controller.description,
     firmwareVersion: controller.firmwareVersion,
     heartbeatIntervalSec: controller.heartbeatIntervalSec,
-    lastSeenAt: controller.lastSeenAt ?? null,
+    lastSeenAt: controller.lastSeenAt ? (controller.lastSeenAt instanceof Date ? controller.lastSeenAt.toISOString() : String(controller.lastSeenAt)) : null,
     status: computeControllerStatus(controller.lastSeenAt ?? null, controller.heartbeatIntervalSec),
-    createdAt: controller.createdAt,
-    updatedAt: controller.updatedAt,
+    createdAt: controller.createdAt instanceof Date ? controller.createdAt.toISOString() : String(controller.createdAt),
+    updatedAt: controller.updatedAt instanceof Date ? controller.updatedAt.toISOString() : String(controller.updatedAt),
     channelCount: channelList.length,
     openAlertCount: openAlertList.length,
     sensorCount: channelList.filter((c) => c.kind !== "actuator").length,
@@ -53,39 +48,38 @@ export function buildControllerCard(
   };
 }
 
-export function getControllerOwnedByUser(userId: string, controllerId: string) {
-  const controller = db
-    .select()
-    .from(controllers)
-    .where(and(eq(controllers.id, controllerId), eq(controllers.userId, userId)))
-    .get();
-  if (!controller) throw new Error("Controller not found.");
-  return controller;
+export async function getControllerOwnedByUser(userId: string, controllerId: string) {
+  const rows = await db.select().from(controllers)
+    .where(and(eq(controllers.id, controllerId), eq(controllers.userId, userId)));
+  if (!rows[0]) throw new Error("Controller not found.");
+  return rows[0];
 }
 
-export function updateControllerStatuses(userId: string) {
-  const list = db.select().from(controllers).where(eq(controllers.userId, userId)).all();
-  for (const controller of list) {
+export async function updateControllerStatuses(userId: string) {
+  const list = await db.select().from(controllers).where(eq(controllers.userId, userId));
+  await Promise.all(list.map(async (controller) => {
     const status = computeControllerStatus(controller.lastSeenAt ?? null, controller.heartbeatIntervalSec);
     if (status !== controller.status) {
-      db.update(controllers).set({ status, updatedAt: nowIso() }).where(eq(controllers.id, controller.id)).run();
+      await db.update(controllers).set({ status, updatedAt: now() }).where(eq(controllers.id, controller.id));
     }
     if (status === "online") {
-      resolveOpenAlerts(userId, controller.id, "offline");
+      await resolveOpenAlerts(userId, controller.id, "offline");
     } else if (status === "stale") {
-      upsertOpenAlert({ userId, controllerId: controller.id, type: "offline", severity: "warning", title: `${controller.name} missed a heartbeat`, message: `${controller.hardwareId} is stale and has not checked in on schedule.` });
+      await upsertOpenAlert({ userId, controllerId: controller.id, type: "offline", severity: "warning", title: `${controller.name} missed a heartbeat`, message: `${controller.hardwareId} is stale.` });
     } else {
-      upsertOpenAlert({ userId, controllerId: controller.id, type: "offline", severity: "critical", title: `${controller.name} is offline`, message: `${controller.hardwareId} has not synced for more than ${controller.heartbeatIntervalSec * 2} seconds.` });
+      await upsertOpenAlert({ userId, controllerId: controller.id, type: "offline", severity: "critical", title: `${controller.name} is offline`, message: `${controller.hardwareId} has not synced for more than ${controller.heartbeatIntervalSec * 2} seconds.` });
     }
-  }
+  }));
 }
 
-export function getUserControllers(userId: string) {
-  updateControllerStatuses(userId);
-  const controllerRows = db.select().from(controllers).where(eq(controllers.userId, userId)).orderBy(desc(controllers.updatedAt)).all();
+export async function getUserControllers(userId: string) {
+  await updateControllerStatuses(userId);
+  const controllerRows = await db.select().from(controllers)
+    .where(eq(controllers.userId, userId)).orderBy(desc(controllers.updatedAt));
+
   const controllerIds = controllerRows.map((c) => c.id);
   const channelRows = controllerIds.length
-    ? db.select().from(channels).where(inArray(channels.controllerId, controllerIds)).orderBy(channels.sortOrder, channels.createdAt).all()
+    ? await db.select().from(channels).where(inArray(channels.controllerId, controllerIds)).orderBy(channels.sortOrder, channels.createdAt)
     : [];
 
   const channelMap = new Map<string, Array<ReturnType<typeof hydrateChannel>>>();
@@ -95,76 +89,65 @@ export function getUserControllers(userId: string) {
     channelMap.set(channel.controllerId, list);
   }
 
-  const alertMap = getOpenAlertsByController(userId);
-  return controllerRows.map((controller) => buildControllerCard(controller, channelMap.get(controller.id) ?? [], alertMap.get(controller.id) ?? []));
+  const alertMap = await getOpenAlertsByController(userId);
+  return controllerRows.map((c) => buildControllerCard(c, channelMap.get(c.id) ?? [], alertMap.get(c.id) ?? []));
 }
 
-export function createController(userId: string, input: ControllerInput) {
+export async function createController(userId: string, input: ControllerInput) {
   const hardwareId = input.hardwareId.trim();
-  if (db.select().from(controllers).where(eq(controllers.hardwareId, hardwareId)).get()) {
-    throw new Error("That hardware ID is already registered.");
-  }
+  const existing = await db.select().from(controllers).where(eq(controllers.hardwareId, hardwareId));
+  if (existing[0]) throw new Error("That hardware ID is already registered.");
 
-  const timestamp = nowIso();
+  const timestamp = now();
   const controllerId = createId("esp32");
   const deviceKey = createSecret();
 
-  db.insert(controllers)
-    .values({
-      id: controllerId,
-      userId,
-      name: input.name.trim(),
-      hardwareId,
-      deviceKeyHash: hashToken(deviceKey),
-      location: input.location.trim(),
-      description: input.description?.trim() ?? "",
-      firmwareVersion: "unknown",
-      heartbeatIntervalSec: input.heartbeatIntervalSec ?? 60,
-      lastSeenAt: null,
-      status: "offline",
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    })
-    .run();
+  await db.insert(controllers).values({
+    id: controllerId, userId,
+    name: input.name.trim(), hardwareId,
+    deviceKeyHash: hashToken(deviceKey),
+    location: input.location.trim(),
+    description: input.description?.trim() ?? "",
+    firmwareVersion: "unknown",
+    heartbeatIntervalSec: input.heartbeatIntervalSec ?? 60,
+    lastSeenAt: null, status: "offline",
+    createdAt: timestamp, updatedAt: timestamp,
+  });
 
   return {
-    controller: buildControllerCard(getControllerOwnedByUser(userId, controllerId), [], []),
+    controller: buildControllerCard(await getControllerOwnedByUser(userId, controllerId), [], []),
     deviceKey,
   };
 }
 
-export function updateController(userId: string, controllerId: string, input: Partial<ControllerInput>) {
-  const controller = getControllerOwnedByUser(userId, controllerId);
+export async function updateController(userId: string, controllerId: string, input: Partial<ControllerInput>) {
+  const controller = await getControllerOwnedByUser(userId, controllerId);
   if (input.hardwareId && input.hardwareId.trim() !== controller.hardwareId) {
-    if (db.select().from(controllers).where(eq(controllers.hardwareId, input.hardwareId.trim())).get()) {
-      throw new Error("That hardware ID is already registered.");
-    }
+    const conflict = await db.select().from(controllers).where(eq(controllers.hardwareId, input.hardwareId.trim()));
+    if (conflict[0]) throw new Error("That hardware ID is already registered.");
   }
 
-  db.update(controllers)
-    .set({
-      name: input.name?.trim() ?? controller.name,
-      hardwareId: input.hardwareId?.trim() ?? controller.hardwareId,
-      location: input.location?.trim() ?? controller.location,
-      description: input.description?.trim() ?? controller.description,
-      heartbeatIntervalSec: input.heartbeatIntervalSec ?? controller.heartbeatIntervalSec,
-      updatedAt: nowIso(),
-    })
-    .where(eq(controllers.id, controller.id))
-    .run();
+  await db.update(controllers).set({
+    name: input.name?.trim() ?? controller.name,
+    hardwareId: input.hardwareId?.trim() ?? controller.hardwareId,
+    location: input.location?.trim() ?? controller.location,
+    description: input.description?.trim() ?? controller.description,
+    heartbeatIntervalSec: input.heartbeatIntervalSec ?? controller.heartbeatIntervalSec,
+    updatedAt: now(),
+  }).where(eq(controllers.id, controller.id));
 
-  return controller;
+  return getControllerOwnedByUser(userId, controllerId);
 }
 
-export function deleteController(userId: string, controllerId: string) {
-  getControllerOwnedByUser(userId, controllerId);
-  db.delete(controllers).where(eq(controllers.id, controllerId)).run();
+export async function deleteController(userId: string, controllerId: string) {
+  await getControllerOwnedByUser(userId, controllerId);
+  await db.delete(controllers).where(eq(controllers.id, controllerId));
   return { ok: true };
 }
 
-export function resetControllerKey(userId: string, controllerId: string) {
-  getControllerOwnedByUser(userId, controllerId);
+export async function resetControllerKey(userId: string, controllerId: string) {
+  await getControllerOwnedByUser(userId, controllerId);
   const deviceKey = createSecret();
-  db.update(controllers).set({ deviceKeyHash: hashToken(deviceKey), updatedAt: nowIso() }).where(eq(controllers.id, controllerId)).run();
+  await db.update(controllers).set({ deviceKeyHash: hashToken(deviceKey), updatedAt: now() }).where(eq(controllers.id, controllerId));
   return { deviceKey };
 }

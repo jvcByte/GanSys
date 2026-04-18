@@ -28,13 +28,19 @@ function alertClass(severity: string) {
 export function DashboardHome({ initialSnapshot }: Props) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const { lastMessage, connected } = useWs();
+  const safeSnapshot = {
+    user: snapshot?.user ?? initialSnapshot?.user,
+    summary: snapshot?.summary ?? initialSnapshot?.summary,
+    controllers: snapshot?.controllers ?? initialSnapshot?.controllers ?? [],
+    alerts: snapshot?.alerts ?? initialSnapshot?.alerts ?? [],
+  };
 
   // React to real-time controller_update messages from WebSocket
   useEffect(() => {
     if (!lastMessage || lastMessage.type !== "controller_update") return;
     setSnapshot((prev) => ({
       ...prev,
-      controllers: prev.controllers.map((c) =>
+      controllers: (prev?.controllers ?? []).map((c) =>
         c.id === lastMessage.data.id ? lastMessage.data : c
       ),
     }));
@@ -46,7 +52,13 @@ export function DashboardHome({ initialSnapshot }: Props) {
     const interval = window.setInterval(async () => {
       const response = await fetch("/api/controllers", { cache: "no-store" });
       if (!response.ok) return;
-      setSnapshot((await response.json()) as DashboardSnapshot);
+      const next = (await response.json()) as Partial<DashboardSnapshot>;
+      setSnapshot((prev) => ({
+        user: next.user ?? prev.user,
+        summary: next.summary ?? prev.summary,
+        controllers: next.controllers ?? prev.controllers,
+        alerts: next.alerts ?? prev.alerts,
+      }));
     }, 5_000);
     return () => window.clearInterval(interval);
   }, [connected]);
@@ -56,7 +68,7 @@ export function DashboardHome({ initialSnapshot }: Props) {
       <header className={styles.topbar}>
         <div>
           <p className={styles.eyebrow}>Live overview</p>
-          <h1 style={{ margin: 0, fontSize: "1.4rem", fontWeight: 700 }}>{snapshot.user.farmName} dashboard</h1>
+          <h1 style={{ margin: 0, fontSize: "1.4rem", fontWeight: 700 }}>{safeSnapshot.user?.farmName ?? "Farm"} dashboard</h1>
           <p className={styles.muted} style={{ margin: "0.2rem 0 0", fontSize: "0.85rem" }}>
             Monitor controller uptime, water systems, soil signals, and pending field alerts.
           </p>
@@ -79,10 +91,10 @@ export function DashboardHome({ initialSnapshot }: Props) {
               <Cpu size={14} />
               <p className={styles.eyebrow} style={{ margin: 0 }}>Controllers</p>
             </div>
-            <strong>{snapshot.summary.controllerCount}</strong>
+            <strong>{safeSnapshot.summary?.controllerCount ?? 0}</strong>
             <p className={styles.muted} style={{ margin: 0, fontSize: "0.82rem" }}>
-              {snapshot.summary.onlineControllers} online,{" "}
-              {snapshot.summary.controllerCount - snapshot.summary.onlineControllers} offline
+              {safeSnapshot.summary?.onlineControllers ?? 0} online,{" "}
+              {(safeSnapshot.summary?.controllerCount ?? 0) - (safeSnapshot.summary?.onlineControllers ?? 0)} offline
             </p>
           </article>
           <article className={styles.summaryCard}>
@@ -90,9 +102,9 @@ export function DashboardHome({ initialSnapshot }: Props) {
               <AlertTriangle size={14} />
               <p className={styles.eyebrow} style={{ margin: 0 }}>Alerts</p>
             </div>
-            <strong>{snapshot.summary.criticalAlerts + snapshot.summary.warningAlerts}</strong>
+            <strong>{(safeSnapshot.summary?.criticalAlerts ?? 0) + (safeSnapshot.summary?.warningAlerts ?? 0)}</strong>
             <p className={styles.muted} style={{ margin: 0, fontSize: "0.82rem" }}>
-              {snapshot.summary.criticalAlerts} critical, {snapshot.summary.warningAlerts} warning{snapshot.summary.warningAlerts === 1 ? "" : "s"}
+              {safeSnapshot.summary?.criticalAlerts ?? 0} critical, {safeSnapshot.summary?.warningAlerts ?? 0} warning{(safeSnapshot.summary?.warningAlerts ?? 0) === 1 ? "" : "s"}
             </p>
           </article>
           <article className={styles.summaryCard}>
@@ -100,7 +112,7 @@ export function DashboardHome({ initialSnapshot }: Props) {
               <Droplets size={14} />
               <p className={styles.eyebrow} style={{ margin: 0 }}>Tank Average</p>
             </div>
-            <strong>{snapshot.summary.avgTankLevel ?? "--"}%</strong>
+            <strong>{safeSnapshot.summary?.avgTankLevel ?? "--"}%</strong>
             <p className={styles.muted} style={{ margin: 0, fontSize: "0.82rem" }}>Across registered tank channels</p>
           </article>
           <article className={styles.summaryCard}>
@@ -108,9 +120,9 @@ export function DashboardHome({ initialSnapshot }: Props) {
               <Sprout size={14} />
               <p className={styles.eyebrow} style={{ margin: 0 }}>Soil Average</p>
             </div>
-            <strong>{snapshot.summary.avgSoilMoisture ?? "--"}%</strong>
+            <strong>{safeSnapshot.summary?.avgSoilMoisture ?? "--"}%</strong>
             <p className={styles.muted} style={{ margin: 0, fontSize: "0.82rem" }}>
-              {snapshot.summary.openCommands} manual command{snapshot.summary.openCommands === 1 ? "" : "s"} pending
+              {safeSnapshot.summary?.openCommands ?? 0} manual command{(safeSnapshot.summary?.openCommands ?? 0) === 1 ? "" : "s"} pending
             </p>
           </article>
         </div>
@@ -129,8 +141,8 @@ export function DashboardHome({ initialSnapshot }: Props) {
           </div>
 
           <div className={styles.controllerGrid}>
-            {snapshot.controllers.length ? (
-              snapshot.controllers.map((controller) => (
+            {safeSnapshot.controllers.length ? (
+              safeSnapshot.controllers.map((controller) => (
                 <article key={controller.id} className={styles.controllerCard}>
                   <div className={styles.cardHead}>
                     <div>
@@ -180,8 +192,8 @@ export function DashboardHome({ initialSnapshot }: Props) {
             </div>
           </div>
           <div className={styles.alertList}>
-            {snapshot.alerts.length ? (
-              snapshot.alerts.map((alert) => (
+            {safeSnapshot.alerts.length ? (
+              safeSnapshot.alerts.map((alert) => (
                 <article key={alert.id} className={`${styles.alertCard} ${alertClass(alert.severity)}`}>
                   <div className={styles.rowBetween}>
                     <strong>{alert.title}</strong>

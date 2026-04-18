@@ -7,7 +7,7 @@ export async function POST() {
   try {
     const token = await getSessionToken();
     if (token) {
-      deleteSessionByToken(token);
+      await deleteSessionByToken(token);
       await clearSessionCookie();
     }
     return jsonOk({ ok: true });

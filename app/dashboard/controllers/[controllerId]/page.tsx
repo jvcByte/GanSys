@@ -14,6 +14,6 @@ export default async function ControllerPage({ params }: Props) {
     return null;
   }
   const { controllerId } = await params;
-  const snapshot = getControllerSnapshot(user.id, controllerId);
+  const snapshot = await getControllerSnapshot(user.id, controllerId);
   return <ControllerDetail initialSnapshot={snapshot} />;
 }
