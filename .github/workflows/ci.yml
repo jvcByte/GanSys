@@ -2,24 +2,16 @@ name: CI
 
 on:
   pull_request:
-    branches:
-      - main
+    branches: [main, dev]
   push:
-    branches:
-      - main
+    branches: [dev]
   workflow_dispatch:
-
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   verify:
-    name: verify
+    name: Verify
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
     steps:
       - name: Check out repository
@@ -39,6 +31,10 @@ jobs:
 
       - name: Run tests
         run: npm test
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL || 'postgresql://test@localhost:5432/test' }}
 
       - name: Build application
         run: npm run build
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL || 'postgresql://test@localhost:5432/test' }}
