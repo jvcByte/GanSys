@@ -47,7 +47,8 @@ export function AuthForm({ mode }: { mode: Mode }) {
       // Force a document navigation so the new server-set session cookie is
       // definitely present for the dashboard request.
       window.location.assign("/dashboard");
-    } catch {
+    } catch (err) {
+      console.error("Auth error:", err);
       setError("Authentication failed. Please try again.");
       setLoading(false);
     }
