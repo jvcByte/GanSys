@@ -55,11 +55,11 @@ function createMqttClient(): MqttClient {
       const body = JSON.parse(payload.toString()) as Record<string, unknown>;
 
       if (topic.endsWith("/readings")) {
-        handleReadings(hardwareId, body);
+        void handleReadings(hardwareId, body);
       } else if (topic.endsWith("/acks")) {
-        handleAcks(hardwareId, body);
+        void handleAcks(hardwareId, body);
       } else if (topic.endsWith("/snapshot")) {
-        handleSnapshot(hardwareId, body);
+        void handleSnapshot(hardwareId, body);
       }
     } catch (err) {
       console.error(`[MQTT] Failed to process message on ${topic}:`, err);
@@ -69,16 +69,21 @@ function createMqttClient(): MqttClient {
   return client;
 }
 
-function handleReadings(hardwareId: string, body: Record<string, unknown>) {
+async function getControllerByHardwareId(hardwareId: string) {
+  const rows = await db.select().from(controllers).where(eq(controllers.hardwareId, hardwareId));
+  return rows[0] ?? null;
+}
+
+async function handleReadings(hardwareId: string, body: Record<string, unknown>) {
   // Reuse the device key from the sync endpoint — MQTT messages are pre-authenticated
   // by the broker (TLS + username/password), so we look up the controller directly.
-  const controller = db.select().from(controllers).where(eq(controllers.hardwareId, hardwareId)).get();
+  const controller = await getControllerByHardwareId(hardwareId);
   if (!controller) {
     console.warn(`[MQTT] Unknown hardwareId: ${hardwareId}`);
     return;
   }
 
-  const result = deviceSync(hardwareId, "", body as Parameters<typeof deviceSync>[2], true);
+  const result = await deviceSync(hardwareId, "", body as Parameters<typeof deviceSync>[2], true);
   publishCommands(hardwareId, {
     commands: result.pendingCommands,
     pestControlSchedule: result.pestControlSchedule,
@@ -86,38 +91,38 @@ function handleReadings(hardwareId: string, body: Record<string, unknown>) {
 
   // Broadcast updated snapshot to all open browser sessions for this user
   try {
-    const snapshot = getControllerSnapshot(controller.userId, controller.id);
+    const snapshot = await getControllerSnapshot(controller.userId, controller.id);
     broadcastToUser(controller.userId, { type: "controller_update", data: snapshot.controller });
   } catch (err) {
     console.error("[MQTT] Broadcast error:", err);
   }
 }
 
-function handleAcks(hardwareId: string, body: Record<string, unknown>) {
-  const controller = db.select().from(controllers).where(eq(controllers.hardwareId, hardwareId)).get();
+async function handleAcks(hardwareId: string, body: Record<string, unknown>) {
+  const controller = await getControllerByHardwareId(hardwareId);
   if (!controller) return;
 
   const acks = Array.isArray(body.acknowledgements) ? body.acknowledgements : [];
-  applyAcknowledgements(controller.userId, controller.id, acks);
+  await applyAcknowledgements(controller.userId, controller.id, acks);
 
   try {
-    const snapshot = getControllerSnapshot(controller.userId, controller.id);
+    const snapshot = await getControllerSnapshot(controller.userId, controller.id);
     broadcastToUser(controller.userId, { type: "controller_update", data: snapshot.controller });
   } catch (err) {
     console.error("[MQTT] Broadcast error after acks:", err);
   }
 }
 
-function handleSnapshot(hardwareId: string, body: Record<string, unknown>) {
+async function handleSnapshot(hardwareId: string, body: Record<string, unknown>) {
   // Camera snapshot arrives as { channelKey, imageUrl?, imageBase64? }
   // Delegate to the readings handler with a synthetic reading payload
-  const controller = db.select().from(controllers).where(eq(controllers.hardwareId, hardwareId)).get();
+  const controller = await getControllerByHardwareId(hardwareId);
   if (!controller) return;
 
   const channelKey = typeof body.channelKey === "string" ? body.channelKey : null;
   if (!channelKey) return;
 
-  deviceSync(hardwareId, "", {
+  await deviceSync(hardwareId, "", {
     readings: [{
       channelKey,
       payload: {
@@ -129,7 +134,7 @@ function handleSnapshot(hardwareId: string, body: Record<string, unknown>) {
   }, true);
 
   try {
-    const snapshot = getControllerSnapshot(controller.userId, controller.id);
+    const snapshot = await getControllerSnapshot(controller.userId, controller.id);
     broadcastToUser(controller.userId, {
       type: "snapshot_update",
       data: { channelId: channelKey, snapshot: snapshot.latestSnapshots[channelKey] ?? { imageUrl: null, imageBase64: null } },

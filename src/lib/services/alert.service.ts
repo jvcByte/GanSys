@@ -98,3 +98,24 @@ export async function getOpenAlertsByController(userId: string) {
   }
   return map;
 }
+
+export async function getAlerts(
+  userId: string,
+  query: { controllerId?: string; status?: string }
+): Promise<AlertView[]> {
+  const conditions = [eq(alerts.userId, userId)];
+
+  if (query.controllerId) {
+    conditions.push(eq(alerts.controllerId, query.controllerId));
+  }
+
+  if (query.status) {
+    conditions.push(eq(alerts.status, query.status));
+  }
+
+  const rows = await db.select().from(alerts)
+    .where(and(...conditions))
+    .orderBy(desc(alerts.openedAt));
+
+  return rows.map(hydrateAlert);
+}

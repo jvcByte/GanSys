@@ -28,7 +28,11 @@ export async function getChannelHistory(userId: string, channelId: string, range
     LIMIT 300
   `);
 
-  return (rows as Array<{ recorded_at: string; numeric_value: string }>).map((row) => ({
+  const historyRows = Array.isArray(rows)
+    ? rows
+    : (((rows as unknown) as { rows?: Array<{ recorded_at: string; numeric_value: string }> }).rows ?? []);
+
+  return historyRows.map((row) => ({
     recordedAt: row.recorded_at,
     numericValue: Number(row.numeric_value),
   }));
