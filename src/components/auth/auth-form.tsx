@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import styles from "@/components/auth/auth-form.module.css";
@@ -9,7 +8,6 @@ import styles from "@/components/auth/auth-form.module.css";
 type Mode = "login" | "signup";
 
 export function AuthForm({ mode }: { mode: Mode }) {
-  const router = useRouter();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -32,19 +30,28 @@ export function AuthForm({ mode }: { mode: Mode }) {
             password: String(formData.get("password") ?? ""),
           };
 
-    const response = await fetch(`/api/auth/${mode}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      setError(data.error ?? "Authentication failed.");
+    try {
+      const response = await fetch(`/api/auth/${mode}`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setError(data.error ?? "Authentication failed.");
+        setLoading(false);
+        return;
+      }
+
+      // Force a document navigation so the new server-set session cookie is
+      // definitely present for the dashboard request.
+      window.location.assign("/dashboard");
+    } catch (err) {
+      console.error("Auth error:", err);
+      setError("Authentication failed. Please try again.");
       setLoading(false);
-      return;
     }
-    router.replace("/dashboard");
-    router.refresh();
   }
 
   return (

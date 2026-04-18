@@ -149,6 +149,14 @@ export function SettingsView({ initialSnapshot }: Props) {
     return `ESP32-${normalizeToken(name || "CONTROLLER")}`;
   }
 
+  function applySuggestedHardwareId() {
+    setNewController((current) => {
+      const suggestedHardwareId = buildSuggestedHardwareId(current.name);
+      return { ...current, hardwareId: suggestedHardwareId };
+    });
+    setMessage("Suggested hardware ID applied.");
+  }
+
   function buildUniqueChannelKey(controllerId: string, baseKey: string, reservedKeys: Set<string> = new Set()) {
     const normalizedBase = normalizeChannelKey(baseKey) || "channel";
     const existingKeys = new Set(
@@ -574,28 +582,28 @@ export function SettingsView({ initialSnapshot }: Props) {
           <div className={styles.formGrid}>
             <label className={styles.formRow}>
               <span>Name</span>
-              <input value={newController.name} onChange={(event) => setNewController({ ...newController, name: event.target.value })} />
+              <input value={newController.name} onChange={(event) => setNewController((current) => ({ ...current, name: event.target.value }))} />
             </label>
             <div className={styles.twoCol}>
               <label className={styles.formRow}>
                 <span>Hardware ID</span>
-                <input value={newController.hardwareId} onChange={(event) => setNewController({ ...newController, hardwareId: event.target.value })} />
+                <input value={newController.hardwareId} onChange={(event) => setNewController((current) => ({ ...current, hardwareId: event.target.value }))} />
               </label>
               <label className={styles.formRow}>
                 <span>Location</span>
-                <input value={newController.location} onChange={(event) => setNewController({ ...newController, location: event.target.value })} />
+                <input value={newController.location} onChange={(event) => setNewController((current) => ({ ...current, location: event.target.value }))} />
               </label>
             </div>
             <button
               className={styles.ghostButton}
               type="button"
-              onClick={() => setNewController((current) => ({ ...current, hardwareId: buildSuggestedHardwareId(current.name) }))}
+              onClick={applySuggestedHardwareId}
             >
               Suggest Hardware ID
             </button>
             <label className={styles.formRow}>
               <span>Description</span>
-              <textarea value={newController.description} rows={3} onChange={(event) => setNewController({ ...newController, description: event.target.value })} />
+              <textarea value={newController.description} rows={3} onChange={(event) => setNewController((current) => ({ ...current, description: event.target.value }))} />
             </label>
             <label className={styles.formRow}>
               <span>Heartbeat interval (seconds)</span>
@@ -604,7 +612,7 @@ export function SettingsView({ initialSnapshot }: Props) {
                 min={15}
                 max={300}
                 value={newController.heartbeatIntervalSec}
-                onChange={(event) => setNewController({ ...newController, heartbeatIntervalSec: Number(event.target.value) || 60 })}
+                onChange={(event) => setNewController((current) => ({ ...current, heartbeatIntervalSec: Number(event.target.value) || 60 }))}
               />
             </label>
             <label className={styles.formRow}>

@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      DATABASE_URL: ${{secrets.DB_URL}}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
     steps:
       - name: Check out repository

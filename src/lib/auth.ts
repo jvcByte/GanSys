@@ -82,7 +82,14 @@ export async function setSessionCookie(token: string, expiresAt: string) {
 
 export async function clearSessionCookie() {
   const store = await cookies();
-  store.delete(SESSION_COOKIE);
+  store.set(SESSION_COOKIE, "", {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    expires: new Date(0),
+    maxAge: 0,
+  });
 }
 
 export async function getSessionToken() {

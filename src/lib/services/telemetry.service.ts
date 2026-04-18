@@ -23,8 +23,8 @@ export async function getChannelHistory(userId: string, channelId: string, range
     WHERE channel_id = ${channelId}
       AND numeric_value IS NOT NULL
       AND recorded_at >= ${start}::timestamptz
-    GROUP BY floor(extract(epoch from recorded_at) / ${bucketSec})
-    ORDER BY recorded_at ASC
+    GROUP BY 1
+    ORDER BY 1 ASC
     LIMIT 300
   `);
 
