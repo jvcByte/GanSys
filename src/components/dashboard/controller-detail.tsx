@@ -6,7 +6,7 @@ import {
   Activity, AlertTriangle, Bell, Bug, Calendar, Camera,
   ChevronRight, Clock, Cpu, Droplets, Fish, FlaskConical,
   History, Leaf, Settings, Sprout, Sun, ToggleLeft,
-  ToggleRight, Wifi, WifiOff, Zap, Plus, Minus,
+  ToggleRight, Wifi, WifiOff, Zap, Plus, Minus, Timer, X,
 } from "lucide-react";
 
 import styles from "@/components/dashboard/dashboard.module.css";
@@ -15,7 +15,7 @@ import { formatRelativeTime } from "@/lib/utils";
 import { useWs } from "@/lib/ws-context";
 import type {
   ChannelView, ControllerSnapshot, HistoryPoint,
-  PestControlSchedule, PestLogEntry,
+  PestControlSchedule, PestLogEntry, ScheduledCommandView,
 } from "@/lib/types";
 
 type Props = { initialSnapshot: ControllerSnapshot };
@@ -457,6 +457,20 @@ export function ControllerDetail({ initialSnapshot }: Props) {
         </div>
       </section>
 
+      {/* Scheduled Commands */}
+      <ScopedErrorBoundary
+        badge="Scheduled commands"
+        title="Scheduled commands are unavailable"
+        message="The scheduled commands panel failed, but the rest of the controller page is still available."
+      >
+        <ScheduledCommandsPanel 
+          controllerId={snapshot.controller.id} 
+          channels={snapshot.controller.channels}
+          scheduledCommands={snapshot.scheduledCommands}
+          onRefresh={refreshSnapshot}
+        />
+      </ScopedErrorBoundary>
+
       {/* Pest Control */}
       {hasPestControl && (
         <section className={styles.metricGrid}>
@@ -608,6 +622,243 @@ function PestLogPanel({ pestLog }: { pestLog: PestLogEntry[] }) {
           </div>
         )) : <div className={styles.empty}>No activity yet.</div>}
       </div>
+    </article>
+  );
+}
+
+// ─── Scheduled Commands Panel ─────────────────────────────────────────────────
+
+type ScheduledCommandsPanelProps = {
+  controllerId: string;
+  channels: ChannelView[];
+  scheduledCommands: ScheduledCommandView[];
+  onRefresh: () => Promise<void>;
+};
+
+function ScheduledCommandsPanel({ controllerId, channels, scheduledCommands, onRefresh }: ScheduledCommandsPanelProps) {
+  const [showForm, setShowForm] = useState(false);
+  const [selectedChannelId, setSelectedChannelId] = useState("");
+  const [desiredState, setDesiredState] = useState<"on" | "off">("on");
+  const [scheduledDate, setScheduledDate] = useState("");
+  const [scheduledTime, setScheduledTime] = useState("");
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  const actuatorChannels = channels.filter((c) => c.kind === "actuator" || c.kind === "hybrid");
+  const pendingCommands = scheduledCommands.filter((c) => c.status === "pending");
+
+  async function scheduleCommand() {
+    if (!selectedChannelId || !scheduledDate || !scheduledTime) {
+      setMsg("Please fill in all required fields.");
+      return;
+    }
+
+    setSaving(true);
+    setMsg("");
+
+    try {
+      const scheduledFor = new Date(`${scheduledDate}T${scheduledTime}`);
+      
+      const r = await fetch(`/api/channels/${selectedChannelId}/scheduled-commands`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          desiredBooleanState: desiredState === "on",
+          note: note.trim(),
+          scheduledFor: scheduledFor.toISOString(),
+        }),
+      });
+
+      const d = await r.json();
+      
+      if (!r.ok) {
+        setMsg(d.error ?? "Failed to schedule command.");
+        setSaving(false);
+        return;
+      }
+
+      setMsg("Command scheduled successfully!");
+      setShowForm(false);
+      setNote("");
+      await onRefresh();
+    } catch (error) {
+      setMsg("An error occurred while scheduling the command.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function cancelCommand(commandId: string) {
+    try {
+      const r = await fetch(`/api/scheduled-commands/${commandId}`, {
+        method: "DELETE",
+      });
+
+      if (r.ok) {
+        await onRefresh();
+      }
+    } catch (error) {
+      console.error("Failed to cancel command:", error);
+    }
+  }
+
+  // Set default date/time to 10 minutes from now
+  useEffect(() => {
+    if (showForm && !scheduledDate) {
+      const now = new Date();
+      now.setMinutes(now.getMinutes() + 10);
+      setScheduledDate(now.toISOString().split("T")[0]);
+      setScheduledTime(now.toTimeString().slice(0, 5));
+    }
+  }, [showForm, scheduledDate]);
+
+  // Set default channel
+  useEffect(() => {
+    if (actuatorChannels.length && !selectedChannelId) {
+      setSelectedChannelId(actuatorChannels[0].id);
+    }
+  }, [actuatorChannels, selectedChannelId]);
+
+  return (
+    <article className={styles.panel} style={{ padding: "1.2rem" }}>
+      <div className={styles.sectionHead}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <Timer size={16} style={{ color: "var(--muted)" }} />
+          <div>
+            <p className={styles.eyebrow}>Automation</p>
+            <h2 style={{ margin: 0, fontSize: "1rem" }}>Scheduled commands</h2>
+          </div>
+        </div>
+        <button
+          className={styles.button}
+          type="button"
+          onClick={() => setShowForm(!showForm)}
+          style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0.5rem 0.8rem" }}
+        >
+          {showForm ? <X size={14} /> : <Plus size={14} />}
+          {showForm ? "Cancel" : "Schedule"}
+        </button>
+      </div>
+
+      {showForm && (
+        <div className={styles.formGrid} style={{ marginTop: "1rem", padding: "1rem", background: "var(--surface)", borderRadius: "8px" }}>
+          <label className={styles.formRow}>
+            <span>Channel</span>
+            <select value={selectedChannelId} onChange={(e) => setSelectedChannelId(e.target.value)}>
+              {actuatorChannels.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className={styles.formRow}>
+            <span>Action</span>
+            <select value={desiredState} onChange={(e) => setDesiredState(e.target.value as "on" | "off")}>
+              <option value="on">Turn On</option>
+              <option value="off">Turn Off</option>
+            </select>
+          </label>
+
+          <div className={styles.twoCol}>
+            <label className={styles.formRow}>
+              <span>Date</span>
+              <input
+                type="date"
+                value={scheduledDate}
+                onChange={(e) => setScheduledDate(e.target.value)}
+                min={new Date().toISOString().split("T")[0]}
+              />
+            </label>
+
+            <label className={styles.formRow}>
+              <span>Time</span>
+              <input
+                type="time"
+                value={scheduledTime}
+                onChange={(e) => setScheduledTime(e.target.value)}
+              />
+            </label>
+          </div>
+
+          <label className={styles.formRow}>
+            <span>Note (optional)</span>
+            <input
+              type="text"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="e.g., Spray pesticide for 15 minutes"
+            />
+          </label>
+
+          {msg && <p className={styles.muted} style={{ fontSize: "0.85rem" }}>{msg}</p>}
+
+          <button
+            className={styles.button}
+            type="button"
+            onClick={() => void scheduleCommand()}
+            disabled={saving}
+            style={{ display: "flex", alignItems: "center", gap: "0.4rem", justifyContent: "center" }}
+          >
+            {saving ? "Scheduling…" : "Schedule Command"}
+          </button>
+        </div>
+      )}
+
+      <div className={styles.alertList} style={{ marginTop: "1rem" }}>
+        {pendingCommands.length ? pendingCommands.map((cmd) => (
+          <div key={cmd.id} className={styles.card}>
+            <div className={styles.rowBetween}>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                  <Timer size={13} style={{ color: "var(--primary)" }} />
+                  <strong style={{ fontSize: "0.88rem" }}>{cmd.channelName}</strong>
+                </div>
+                <p className={styles.muted} style={{ margin: "0.2rem 0 0", fontSize: "0.82rem" }}>
+                  {cmd.desiredBooleanState ? "Turn On" : "Turn Off"}
+                  {cmd.note && ` · ${cmd.note}`}
+                </p>
+                <p className={styles.small} style={{ margin: "0.2rem 0 0", display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                  <Clock size={11} /> Scheduled for {new Date(cmd.scheduledFor).toLocaleString()}
+                </p>
+              </div>
+              <button
+                className={styles.dangerButton}
+                type="button"
+                onClick={() => void cancelCommand(cmd.id)}
+                style={{ padding: "0.4rem 0.6rem", fontSize: "0.8rem" }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )) : <div className={styles.empty}>No scheduled commands. Click "Schedule" to create one.</div>}
+      </div>
+
+      {scheduledCommands.filter((c) => c.status !== "pending").length > 0 && (
+        <>
+          <h3 style={{ margin: "1.5rem 0 0.5rem", fontSize: "0.9rem", color: "var(--muted)" }}>History</h3>
+          <div className={styles.alertList}>
+            {scheduledCommands.filter((c) => c.status !== "pending").slice(0, 5).map((cmd) => (
+              <div key={cmd.id} className={styles.card} style={{ opacity: 0.7 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                  <strong style={{ fontSize: "0.88rem" }}>{cmd.channelName}</strong>
+                  <span className={styles.tag}>{cmd.status}</span>
+                </div>
+                <p className={styles.muted} style={{ margin: "0.2rem 0 0", fontSize: "0.82rem" }}>
+                  {cmd.desiredBooleanState ? "Turn On" : "Turn Off"}
+                  {cmd.note && ` · ${cmd.note}`}
+                </p>
+                <p className={styles.small} style={{ margin: "0.2rem 0 0" }}>
+                  {cmd.status === "executed" && `Executed ${formatRelativeTime(cmd.executedAt)}`}
+                  {cmd.status === "cancelled" && `Cancelled ${formatRelativeTime(cmd.cancelledAt)}`}
+                  {cmd.status === "failed" && `Failed: ${cmd.failureReason}`}
+                </p>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </article>
   );
 }

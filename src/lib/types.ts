@@ -50,6 +50,24 @@ export type CommandView = {
   deviceMessage: string | null;
 };
 
+export type ScheduledCommandView = {
+  id: string;
+  controllerId: string;
+  channelId: string;
+  channelName: string;
+  commandType: string;
+  desiredBooleanState: boolean | null;
+  desiredNumericValue: number | null;
+  note: string;
+  scheduledFor: string;
+  status: string;
+  executedCommandId: string | null;
+  createdAt: string;
+  executedAt: string | null;
+  cancelledAt: string | null;
+  failureReason: string | null;
+};
+
 export type AlertView = {
   id: string;
   controllerId: string;
@@ -107,6 +125,7 @@ export type ControllerSnapshot = {
   controller: ControllerCard;
   alerts: AlertView[];
   commands: CommandView[];
+  scheduledCommands: ScheduledCommandView[];
   pestSchedule: PestControlSchedule | null;
   pestLog: PestLogEntry[];
   latestSnapshots: Record<string, SnapshotPayload>;

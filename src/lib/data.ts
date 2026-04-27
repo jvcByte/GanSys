@@ -13,3 +13,4 @@ export * from "./services/telemetry.service";
 export * from "./services/snapshot.service";
 export * from "./services/device-sync.service";
 export * from "./services/pest.service";
+export * from "./services/scheduled-command.service";

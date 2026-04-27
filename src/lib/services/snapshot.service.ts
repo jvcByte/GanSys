@@ -10,6 +10,7 @@ import { hydrateCommand } from "./command.service";
 import { buildControllerCard, getControllerOwnedByUser, getUserControllers, updateControllerStatuses } from "./controller.service";
 import { getUserRecord } from "./auth.service";
 import { getPestSchedule, getPestControlLog, getLatestSnapshots } from "./pest.service";
+import { getScheduledCommandsByController } from "./scheduled-command.service";
 
 export async function buildSummary(
   userId: string,
@@ -60,10 +61,11 @@ export async function getControllerSnapshot(userId: string, controllerId: string
   await updateControllerStatuses(userId);
   const controller = await getControllerOwnedByUser(userId, controllerId);
 
-  const [channelRows, controllerAlerts, controllerCommands, pestSchedule, pestLog, latestSnapshots] = await Promise.all([
+  const [channelRows, controllerAlerts, controllerCommands, scheduledCommands, pestSchedule, pestLog, latestSnapshots] = await Promise.all([
     db.select().from(channels).where(eq(channels.controllerId, controller.id)).orderBy(channels.sortOrder, channels.createdAt),
     db.select().from(alerts).where(and(eq(alerts.userId, userId), eq(alerts.controllerId, controller.id), eq(alerts.status, "open"))).orderBy(desc(alerts.openedAt)),
     db.select().from(commands).where(eq(commands.controllerId, controller.id)).orderBy(desc(commands.createdAt)).limit(10),
+    getScheduledCommandsByController(userId, controllerId),
     getPestSchedule(userId, controllerId),
     getPestControlLog(controller.id),
     getLatestSnapshots(controller.id),
@@ -74,6 +76,7 @@ export async function getControllerSnapshot(userId: string, controllerId: string
     controller: buildControllerCard(controller, channelRows.map(hydrateChannel), controllerAlerts.map(hydrateAlert)),
     alerts: controllerAlerts.map(hydrateAlert),
     commands: controllerCommands.map(hydrateCommand),
+    scheduledCommands,
     pestSchedule,
     pestLog,
     latestSnapshots,
