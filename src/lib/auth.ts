@@ -1,3 +1,5 @@
+import "server-only";
+
 import crypto from "node:crypto";
 import { addDays } from "date-fns";
 import { and, eq, gt } from "drizzle-orm";
