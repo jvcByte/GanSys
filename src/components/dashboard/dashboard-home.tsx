@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Cpu, AlertTriangle, Droplets, Sprout, Plus, Wifi, WifiOff } from "lucide-react";
+import { Cpu, AlertTriangle, Droplets, Sprout, Plus, Wifi, WifiOff, Trash2 } from "lucide-react";
 
 import styles from "@/components/dashboard/dashboard.module.css";
 import { ScopedErrorBoundary } from "@/components/system/scoped-error-boundary";
@@ -28,6 +28,7 @@ function alertClass(severity: string) {
 
 export function DashboardHome({ initialSnapshot }: Props) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
+  const [message, setMessage] = useState("");
   const { lastMessage, connected } = useWs();
   const safeSnapshot = {
     user: snapshot?.user ?? initialSnapshot?.user,
@@ -64,6 +65,36 @@ export function DashboardHome({ initialSnapshot }: Props) {
     return () => window.clearInterval(interval);
   }, [connected]);
 
+  async function refreshControllers() {
+    const response = await fetch("/api/controllers", { cache: "no-store" });
+    if (response.ok) {
+      const next = (await response.json()) as Partial<DashboardSnapshot>;
+      setSnapshot((prev) => ({
+        user: next.user ?? prev.user,
+        summary: next.summary ?? prev.summary,
+        controllers: next.controllers ?? prev.controllers,
+        alerts: next.alerts ?? prev.alerts,
+      }));
+    }
+  }
+
+  async function deleteController(controllerId: string, controllerName: string) {
+    if (!window.confirm(`Are you sure you want to delete "${controllerName}"? This will remove all channels and data associated with this controller. This action cannot be undone.`)) {
+      return;
+    }
+    
+    setMessage("Deleting controller...");
+    const response = await fetch(`/api/controllers/${controllerId}`, { method: "DELETE" });
+    
+    if (response.ok) {
+      setMessage("Controller deleted successfully.");
+      await refreshControllers();
+    } else {
+      const data = await response.json();
+      setMessage(data.error ?? "Failed to delete controller.");
+    }
+  }
+
   return (
     <>
       <header className={styles.topbar}>
@@ -84,6 +115,8 @@ export function DashboardHome({ initialSnapshot }: Props) {
           </Link>
         </div>
       </header>
+
+      {message && <div className={styles.card} style={{ marginBottom: "1rem" }}>{message}</div>}
 
       <ScopedErrorBoundary
         badge="Overview metrics"
@@ -181,9 +214,19 @@ export function DashboardHome({ initialSnapshot }: Props) {
                         <strong>{controller.firmwareVersion}</strong>
                         <div className={styles.small}>Firmware</div>
                       </div>
-                      <Link className={styles.button} href={`/dashboard/controllers/${controller.id}`}>
-                        Open Controller
-                      </Link>
+                      <div style={{ display: "flex", gap: "0.5rem" }}>
+                        <Link className={styles.button} href={`/dashboard/controllers/${controller.id}`}>
+                          Open Controller
+                        </Link>
+                        <button
+                          className={styles.dangerButton}
+                          type="button"
+                          onClick={() => void deleteController(controller.id, controller.name)}
+                          style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}
+                        >
+                          <Trash2 size={14} /> Delete
+                        </button>
+                      </div>
                     </div>
                   </article>
                 ))

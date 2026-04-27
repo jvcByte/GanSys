@@ -28,6 +28,12 @@ app.prepare().then(() => {
     }
   }).catch((err) => console.error("[Server] MQTT init error:", err));
 
+  // Initialise scheduled command processor
+  import("@/lib/scheduler").then(({ startScheduler }) => {
+    startScheduler();
+    console.log("[Server] Scheduled command processor initialised.");
+  }).catch((err) => console.error("[Server] Scheduler init error:", err));
+
   // Create WebSocket server
   const { createWss } = require("./src/lib/ws/server") as typeof import("./src/lib/ws/server");
   const wss = createWss();

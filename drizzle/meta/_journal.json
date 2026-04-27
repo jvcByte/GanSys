@@ -8,6 +8,13 @@
       "when": 1776463906669,
       "tag": "0000_cold_dazzler",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1777321297302,
+      "tag": "0001_curly_hitman",
+      "breakpoints": true
     }
   ]
 }

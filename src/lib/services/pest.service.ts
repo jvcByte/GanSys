@@ -13,6 +13,8 @@ function hydrateSchedule(row: typeof pestControlSchedules.$inferSelect): PestCon
     controllerId: row.controllerId,
     enabled: row.enabled,
     sprayEntries: (row.sprayEntries as Array<{ startTime: string; durationMinutes: number }>) ?? [],
+    sprayPumpStartTime: row.sprayPumpStartTime ?? null,
+    sprayPumpEndTime: row.sprayPumpEndTime ?? null,
     uvStartTime: row.uvStartTime ?? null,
     uvEndTime: row.uvEndTime ?? null,
     updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : String(row.updatedAt),
@@ -31,6 +33,8 @@ export async function upsertPestSchedule(
   input: {
     enabled: boolean;
     sprayEntries: Array<{ startTime: string; durationMinutes: number }>;
+    sprayPumpStartTime?: string | null;
+    sprayPumpEndTime?: string | null;
     uvStartTime?: string | null;
     uvEndTime?: string | null;
   }
@@ -43,6 +47,8 @@ export async function upsertPestSchedule(
     await db.update(pestControlSchedules).set({
       enabled: input.enabled,
       sprayEntries: input.sprayEntries,
+      sprayPumpStartTime: input.sprayPumpStartTime ?? null,
+      sprayPumpEndTime: input.sprayPumpEndTime ?? null,
       uvStartTime: input.uvStartTime ?? null,
       uvEndTime: input.uvEndTime ?? null,
       updatedAt: timestamp,
@@ -53,6 +59,8 @@ export async function upsertPestSchedule(
       controllerId,
       enabled: input.enabled,
       sprayEntries: input.sprayEntries,
+      sprayPumpStartTime: input.sprayPumpStartTime ?? null,
+      sprayPumpEndTime: input.sprayPumpEndTime ?? null,
       uvStartTime: input.uvStartTime ?? null,
       uvEndTime: input.uvEndTime ?? null,
       updatedAt: timestamp,

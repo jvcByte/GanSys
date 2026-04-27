@@ -55,6 +55,13 @@ export const commandSchema = z.object({
   overrideMinutes: z.number().int().min(1).max(180).optional().default(2),
 });
 
+export const scheduledCommandSchema = z.object({
+  desiredBooleanState: z.boolean().optional(),
+  desiredNumericValue: z.number().optional(),
+  note: z.string().optional().default(""),
+  scheduledFor: z.string().datetime(), // ISO 8601 datetime string
+});
+
 export const alertQuerySchema = z.object({
   controllerId: z.string().optional(),
   status: z.string().optional(),
@@ -106,6 +113,8 @@ export const sprayEntrySchema = z.object({
 export const pestScheduleSchema = z.object({
   enabled: z.boolean(),
   sprayEntries: z.array(sprayEntrySchema).max(10),
+  sprayPumpStartTime: timeStringSchema.nullable().optional(),
+  sprayPumpEndTime: timeStringSchema.nullable().optional(),
   uvStartTime: timeStringSchema.nullable().optional(),
   uvEndTime: timeStringSchema.nullable().optional(),
 });

@@ -158,9 +158,38 @@ export const pestControlSchedules = pgTable(
       .$type<Array<{ startTime: string; durationMinutes: number }>>()
       .notNull()
       .default([]),
+    sprayPumpStartTime: text("spray_pump_start_time"),
+    sprayPumpEndTime: text("spray_pump_end_time"),
     uvStartTime: text("uv_start_time"),
     uvEndTime: text("uv_end_time"),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
   },
   (table) => [uniqueIndex("pest_schedules_controller_idx").on(table.controllerId)]
+);
+
+export const scheduledCommands = pgTable(
+  "scheduled_commands",
+  {
+    id: text("id").primaryKey(),
+    controllerId: text("controller_id").notNull().references(() => controllers.id, { onDelete: "cascade" }),
+    channelId: text("channel_id").notNull().references(() => channels.id, { onDelete: "cascade" }),
+    requestedByUserId: text("requested_by_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    commandType: text("command_type").notNull(),
+    desiredBooleanState: boolean("desired_boolean_state"),
+    desiredNumericValue: doublePrecision("desired_numeric_value"),
+    note: text("note").notNull().default(""),
+    scheduledFor: timestamp("scheduled_for", { withTimezone: true }).notNull(),
+    status: text("status").notNull().default("pending"), // pending, executed, cancelled, failed
+    executedCommandId: text("executed_command_id").references(() => commands.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    executedAt: timestamp("executed_at", { withTimezone: true }),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    failureReason: text("failure_reason"),
+  },
+  (table) => [
+    index("scheduled_commands_controller_id_idx").on(table.controllerId),
+    index("scheduled_commands_channel_id_idx").on(table.channelId),
+    index("scheduled_commands_status_idx").on(table.status),
+    index("scheduled_commands_scheduled_for_idx").on(table.scheduledFor),
+  ]
 );
