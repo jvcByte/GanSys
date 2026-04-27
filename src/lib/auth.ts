@@ -111,7 +111,8 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
 
   const session = rows[0];
   if (!session) {
-    await clearSessionCookie();
+    // Can't clear cookie here — may be called from a Server Component.
+    // The cookie will expire naturally or be cleared on next logout.
     return null;
   }
 
@@ -120,7 +121,6 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
   const userRows = await db.select().from(users).where(eq(users.id, session.userId));
   const user = userRows[0];
   if (!user) {
-    await clearSessionCookie();
     return null;
   }
 
