@@ -1,181 +1,99 @@
 /*
  * GanSys - Dual Soil Moisture Sensor with Automated Irrigation
- * 
- * Hardware Setup:
- * - 2x Capacitive Soil Moisture Sensors (Analog)
- * - 1x Relay Module (for Solenoid Valve)
- * - ESP32 Development Board
- * 
- * Pin Configuration:
- * - Soil Sensor 1: GPIO 34 (ADC1_CH6)
- * - Soil Sensor 2: GPIO 35 (ADC1_CH7)
- * - Relay (Valve): GPIO 26
- * 
- * Logic:
- * - If ANY sensor reads below threshold (dry soil), open valve
- * - Valve stays open until BOTH sensors are above threshold (moist)
+ *
+ * Hardware:
+ *   - 2x Capacitive Soil Moisture Sensors (Analog)
+ *   - 1x Relay Module (Solenoid Valve)
+ *   - ESP32 Development Board
+ *
+ * Pin Config:
+ *   - Soil Sensor 1 : GPIO 34 (ADC1_CH6)
+ *   - Soil Sensor 2 : GPIO 35 (ADC1_CH7)
+ *   - Relay (Valve) : GPIO 26
  */
 
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include <esp_task_wdt.h>
 
 // ============================================================================
-// CONFIGURATION - Update these values for your setup
+// CONFIGURATION
 // ============================================================================
 
-// WiFi Credentials
-const char* WIFI_SSID = "YOUR_WIFI_SSID";
-const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+// WiFi
+const char* WIFI_SSID        = "Ikop";
+const char* WIFI_PASSWORD    = "maxy1234";
 
-// GanSys Dashboard API
-const char* API_ENDPOINT = "https://your-domain.com/api/device/sync";
-const char* DEVICE_ID = "ESP32-DUAL-SOIL-01";  // Match your controller's hardwareId
-const char* DEVICE_KEY = "YOUR-DEVICE-KEY-HERE";  // From dashboard settings
+// API
+const char* API_ENDPOINT     = "https://gansystems.vercel.app/api/device/sync";
+const char* DEVICE_ID        = "ESP32-DUAL-SOIL-01";
+const char* DEVICE_KEY       = "YOUR-DEVICE-KEY-HERE";
 
-// Pin Definitions
-const int SOIL_SENSOR_1_PIN = 34;  // ADC1_CH6
-const int SOIL_SENSOR_2_PIN = 35;  // ADC1_CH7
-const int RELAY_PIN = 26;          // Digital output for relay
+// Pins
+const uint8_t SOIL_PIN_1     = 34;
+const uint8_t SOIL_PIN_2     = 35;
+const uint8_t RELAY_PIN      = 26;
 
-// Channel Keys (must match dashboard configuration)
-const char* SOIL_1_CHANNEL_KEY = "soil_moisture_1";
-const char* SOIL_2_CHANNEL_KEY = "soil_moisture_2";
-const char* VALVE_CHANNEL_KEY = "irrigation_valve";
+// Channel keys
+const char* CH_SOIL_1        = "soil_moisture_1";
+const char* CH_SOIL_2        = "soil_moisture_2";
+const char* CH_VALVE         = "irrigation_valve";
 
-// Sensor Calibration (adjust based on your sensors)
-const int SOIL_DRY_VALUE = 3000;    // ADC value when sensor is in air (dry)
-const int SOIL_WET_VALUE = 1200;    // ADC value when sensor is in water (wet)
+// Calibration  (dry air = high ADC, water = low ADC)
+const int    SOIL_DRY        = 3000;
+const int    SOIL_WET        = 1200;
 
-// Automation Settings
-const int MOISTURE_THRESHOLD = 35;  // Open valve if moisture < 35%
-const int MOISTURE_STOP = 60;       // Close valve when moisture > 60%
+// Thresholds
+const int    THRESHOLD_OPEN  = 35;   // Open valve if moisture below this
+const int    THRESHOLD_CLOSE = 60;   // Close valve when BOTH sensors above this
 
-// Timing
-const unsigned long SYNC_INTERVAL = 30000;      // Sync every 30 seconds
-const unsigned long SENSOR_READ_INTERVAL = 5000; // Read sensors every 5 seconds
+// Intervals (ms)
+const unsigned long SYNC_INTERVAL   = 30000UL;
+const unsigned long READ_INTERVAL   = 5000UL;
+const unsigned long WDT_TIMEOUT_S   = 60;     // Watchdog timeout in seconds
 
-// ============================================================================
-// GLOBAL VARIABLES
-// ============================================================================
-
-unsigned long lastSyncTime = 0;
-unsigned long lastSensorReadTime = 0;
-
-int soil1Moisture = 0;
-int soil2Moisture = 0;
-bool valveState = false;
-bool manualOverride = false;
-unsigned long overrideExpiry = 0;
+// ADC samples per reading
+const int ADC_SAMPLES = 10;
 
 // ============================================================================
-// SETUP
+// GLOBALS
 // ============================================================================
 
-void setup() {
-  Serial.begin(115200);
-  delay(1000);
-  
-  Serial.println("\n\n=================================");
-  Serial.println("GanSys Dual Soil Irrigation System");
-  Serial.println("=================================\n");
+unsigned long lastSyncTime       = 0;
+unsigned long lastReadTime       = 0;
 
-  // Configure pins
-  pinMode(RELAY_PIN, OUTPUT);
-  digitalWrite(RELAY_PIN, LOW);  // Relay OFF (valve closed)
-  
-  pinMode(SOIL_SENSOR_1_PIN, INPUT);
-  pinMode(SOIL_SENSOR_2_PIN, INPUT);
+int  soil1Pct                    = 0;
+int  soil2Pct                    = 0;
+bool valveOpen                   = false;
+bool manualOverride              = false;
+unsigned long overrideExpiry     = 0;
 
-  // Configure ADC
-  analogReadResolution(12);  // 12-bit resolution (0-4095)
-  analogSetAttenuation(ADC_11db);  // Full range: 0-3.3V
-
-  // Connect to WiFi
-  connectWiFi();
-
-  Serial.println("\nSystem ready!");
-  Serial.println("Monitoring soil moisture and controlling irrigation...\n");
-}
+// Pending ack queue (max 5 commands between syncs)
+struct PendingAck {
+  char id[64];
+  char status[16];
+};
+PendingAck ackQueue[5];
+int ackCount = 0;
 
 // ============================================================================
-// MAIN LOOP
+// UTILITIES
 // ============================================================================
 
-void loop() {
-  unsigned long currentTime = millis();
-
-  // Read sensors periodically
-  if (currentTime - lastSensorReadTime >= SENSOR_READ_INTERVAL) {
-    lastSensorReadTime = currentTime;
-    readSensors();
-    
-    // Check if manual override has expired
-    if (manualOverride && currentTime >= overrideExpiry) {
-      manualOverride = false;
-      Serial.println("Manual override expired. Resuming automatic control.");
-    }
-    
-    // Automatic irrigation control (if not in manual override)
-    if (!manualOverride) {
-      automaticIrrigationControl();
-    }
-    
-    printStatus();
-  }
-
-  // Sync with dashboard periodically
-  if (currentTime - lastSyncTime >= SYNC_INTERVAL) {
-    lastSyncTime = currentTime;
-    syncWithDashboard();
-  }
-
-  delay(100);
-}
-
-// ============================================================================
-// SENSOR READING
-// ============================================================================
-
-void readSensors() {
-  // Read raw ADC values (multiple samples for stability)
-  int raw1 = 0, raw2 = 0;
-  for (int i = 0; i < 10; i++) {
-    raw1 += analogRead(SOIL_SENSOR_1_PIN);
-    raw2 += analogRead(SOIL_SENSOR_2_PIN);
+int readADCAverage(uint8_t pin) {
+  long total = 0;
+  for (int i = 0; i < ADC_SAMPLES; i++) {
+    total += analogRead(pin);
     delay(10);
   }
-  raw1 /= 10;
-  raw2 /= 10;
-
-  // Convert to percentage (0% = dry, 100% = wet)
-  soil1Moisture = map(raw1, SOIL_DRY_VALUE, SOIL_WET_VALUE, 0, 100);
-  soil2Moisture = map(raw2, SOIL_DRY_VALUE, SOIL_WET_VALUE, 0, 100);
-
-  // Constrain to valid range
-  soil1Moisture = constrain(soil1Moisture, 0, 100);
-  soil2Moisture = constrain(soil2Moisture, 0, 100);
+  return (int)(total / ADC_SAMPLES);
 }
 
-// ============================================================================
-// AUTOMATIC IRRIGATION CONTROL
-// ============================================================================
-
-void automaticIrrigationControl() {
-  // Open valve if ANY sensor is below threshold (dry soil detected)
-  if (soil1Moisture < MOISTURE_THRESHOLD || soil2Moisture < MOISTURE_THRESHOLD) {
-    if (!valveState) {
-      openValve();
-      Serial.println("🚰 AUTO: Opening valve - Dry soil detected!");
-    }
-  }
-  // Close valve only when BOTH sensors are above stop threshold
-  else if (soil1Moisture >= MOISTURE_STOP && soil2Moisture >= MOISTURE_STOP) {
-    if (valveState) {
-      closeValve();
-      Serial.println("✓ AUTO: Closing valve - Soil adequately moist!");
-    }
-  }
+int rawToPercent(int raw) {
+  // Capacitive: dry=high ADC, wet=low ADC -> invert mapping
+  raw = constrain(raw, SOIL_WET, SOIL_DRY);
+  return (int)((float)(SOIL_DRY - raw) / (SOIL_DRY - SOIL_WET) * 100.0f);
 }
 
 // ============================================================================
@@ -183,13 +101,109 @@ void automaticIrrigationControl() {
 // ============================================================================
 
 void openValve() {
-  digitalWrite(RELAY_PIN, HIGH);  // Relay ON
-  valveState = true;
+  if (!valveOpen) {
+    digitalWrite(RELAY_PIN, HIGH);
+    valveOpen = true;
+    Serial.println("[VALVE] Opened");
+  }
 }
 
 void closeValve() {
-  digitalWrite(RELAY_PIN, LOW);   // Relay OFF
-  valveState = false;
+  if (valveOpen) {
+    digitalWrite(RELAY_PIN, LOW);
+    valveOpen = false;
+    Serial.println("[VALVE] Closed");
+  }
+}
+
+// ============================================================================
+// SENSOR READING
+// ============================================================================
+
+void readSensors() {
+  soil1Pct = rawToPercent(readADCAverage(SOIL_PIN_1));
+  soil2Pct = rawToPercent(readADCAverage(SOIL_PIN_2));
+}
+
+// ============================================================================
+// IRRIGATION LOGIC
+// ============================================================================
+
+void runIrrigationLogic() {
+  if (manualOverride) {
+    if (millis() >= overrideExpiry) {
+      manualOverride = false;
+      Serial.println("[AUTO] Manual override expired. Resuming automatic control.");
+    } else {
+      return; // Skip automatic control while override is active
+    }
+  }
+
+  bool anyDry   = (soil1Pct < THRESHOLD_OPEN  || soil2Pct < THRESHOLD_OPEN);
+  bool bothMoist = (soil1Pct >= THRESHOLD_CLOSE && soil2Pct >= THRESHOLD_CLOSE);
+
+  if (anyDry)       openValve();
+  else if (bothMoist) closeValve();
+}
+
+// ============================================================================
+// WIFI
+// ============================================================================
+
+bool connectWiFi() {
+  if (WiFi.status() == WL_CONNECTED) return true;
+
+  Serial.print("[WiFi] Connecting");
+  WiFi.disconnect(true);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+  for (int i = 0; i < 20; i++) {
+    if (WiFi.status() == WL_CONNECTED) break;
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println();
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.print("[WiFi] Connected. IP: ");
+    Serial.println(WiFi.localIP());
+    return true;
+  }
+
+  Serial.println("[WiFi] Connection failed. Running offline.");
+  return false;
+}
+
+// ============================================================================
+// COMMAND PROCESSING
+// ============================================================================
+
+void processCommands(JsonArray commands) {
+  for (JsonObject cmd : commands) {
+    const char* cmdId      = cmd["id"]   | "";
+    const char* channelKey = cmd["channelKey"] | "";
+
+    if (strcmp(channelKey, CH_VALVE) == 0) {
+      bool desired       = cmd["desiredBooleanState"] | false;
+      int  overrideMins  = cmd["overrideMinutes"]     | 0;
+
+      Serial.printf("[CMD] Valve -> %s\n", desired ? "OPEN" : "CLOSE");
+      desired ? openValve() : closeValve();
+
+      if (overrideMins > 0) {
+        manualOverride = true;
+        overrideExpiry = millis() + (unsigned long)overrideMins * 60000UL;
+        Serial.printf("[CMD] Manual override: %d min\n", overrideMins);
+      }
+
+      // Queue acknowledgement
+      if (ackCount < 5 && strlen(cmdId) > 0) {
+        strncpy(ackQueue[ackCount].id,     cmdId,    sizeof(ackQueue[ackCount].id)     - 1);
+        strncpy(ackQueue[ackCount].status, "executed", sizeof(ackQueue[ackCount].status) - 1);
+        ackCount++;
+      }
+    }
+  }
 }
 
 // ============================================================================
@@ -197,187 +211,141 @@ void closeValve() {
 // ============================================================================
 
 void syncWithDashboard() {
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("WiFi disconnected. Reconnecting...");
-    connectWiFi();
-    return;
-  }
+  if (!connectWiFi()) return;
 
   HTTPClient http;
   http.begin(API_ENDPOINT);
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("x-device-id", DEVICE_ID);
+  http.addHeader("x-device-id",  DEVICE_ID);
   http.addHeader("x-device-key", DEVICE_KEY);
+  http.setTimeout(10000); // 10s timeout
 
-  // Build JSON payload
+  // Build payload
   StaticJsonDocument<1024> doc;
-  doc["firmwareVersion"] = "1.0.0";
+  doc["firmwareVersion"] = "1.1.0";
 
   JsonArray readings = doc.createNestedArray("readings");
 
-  // Soil Sensor 1
-  JsonObject soil1 = readings.createNestedObject();
-  soil1["channelKey"] = SOIL_1_CHANNEL_KEY;
-  soil1["numericValue"] = soil1Moisture;
-  soil1["rawValue"] = analogRead(SOIL_SENSOR_1_PIN);
-  soil1["rawUnit"] = "adc";
-  soil1["status"] = "ok";
+  // Soil 1
+  JsonObject s1 = readings.createNestedObject();
+  s1["channelKey"]   = CH_SOIL_1;
+  s1["numericValue"] = soil1Pct;
+  s1["status"]       = "ok";
 
-  // Soil Sensor 2
-  JsonObject soil2 = readings.createNestedObject();
-  soil2["channelKey"] = SOIL_2_CHANNEL_KEY;
-  soil2["numericValue"] = soil2Moisture;
-  soil2["rawValue"] = analogRead(SOIL_SENSOR_2_PIN);
-  soil2["rawUnit"] = "adc";
-  soil2["status"] = "ok";
+  // Soil 2
+  JsonObject s2 = readings.createNestedObject();
+  s2["channelKey"]   = CH_SOIL_2;
+  s2["numericValue"] = soil2Pct;
+  s2["status"]       = "ok";
 
-  // Irrigation Valve
-  JsonObject valve = readings.createNestedObject();
-  valve["channelKey"] = VALVE_CHANNEL_KEY;
-  valve["booleanState"] = valveState;
-  valve["numericValue"] = valveState ? 1 : 0;
-  valve["status"] = "ok";
+  // Valve
+  JsonObject v = readings.createNestedObject();
+  v["channelKey"]   = CH_VALVE;
+  v["booleanState"] = valveOpen;
+  v["numericValue"] = valveOpen ? 1 : 0;
+  v["status"]       = "ok";
 
-  // Acknowledgements (empty for now, will be populated if commands exist)
+  // Bundle any pending acks
   JsonArray acks = doc.createNestedArray("acknowledgements");
+  for (int i = 0; i < ackCount; i++) {
+    JsonObject ack = acks.createNestedObject();
+    ack["commandId"]  = ackQueue[i].id;
+    ack["status"]     = ackQueue[i].status;
+    ack["executedAt"] = millis();
+  }
+  ackCount = 0; // Clear queue after bundling
 
   String payload;
   serializeJson(doc, payload);
 
-  // Send request
-  Serial.println("\n📡 Syncing with dashboard...");
-  int httpCode = http.POST(payload);
+  Serial.println("[SYNC] Sending data...");
+  int code = http.POST(payload);
 
-  if (httpCode > 0) {
+  if (code == 200) {
+    Serial.printf("[SYNC] OK (%d)\n", code);
     String response = http.getString();
-    Serial.printf("✓ Response code: %d\n", httpCode);
 
-    if (httpCode == 200) {
-      // Parse response for pending commands
-      StaticJsonDocument<2048> responseDoc;
-      DeserializationError error = deserializeJson(responseDoc, response);
-
-      if (!error) {
-        JsonArray commands = responseDoc["pendingCommands"];
-        if (commands.size() > 0) {
-          Serial.printf("📋 Received %d pending command(s)\n", commands.size());
-          processPendingCommands(commands);
-        }
+    StaticJsonDocument<2048> resDoc;
+    if (!deserializeJson(resDoc, response)) {
+      JsonArray commands = resDoc["pendingCommands"];
+      if (commands.size() > 0) {
+        Serial.printf("[SYNC] %d command(s) received\n", (int)commands.size());
+        processCommands(commands);
       }
     }
   } else {
-    Serial.printf("✗ HTTP Error: %s\n", http.errorToString(httpCode).c_str());
+    Serial.printf("[SYNC] Failed. HTTP code: %d\n", code);
   }
 
   http.end();
 }
 
 // ============================================================================
-// COMMAND PROCESSING
-// ============================================================================
-
-void processPendingCommands(JsonArray commands) {
-  for (JsonObject cmd : commands) {
-    String commandId = cmd["id"].as<String>();
-    String channelKey = cmd["channelKey"].as<String>();
-    
-    if (channelKey == VALVE_CHANNEL_KEY) {
-      bool desiredState = cmd["desiredBooleanState"].as<bool>();
-      int overrideMinutes = cmd["overrideMinutes"] | 0;
-
-      Serial.printf("🎮 Manual command: %s valve\n", desiredState ? "OPEN" : "CLOSE");
-
-      if (desiredState) {
-        openValve();
-      } else {
-        closeValve();
-      }
-
-      // Set manual override if specified
-      if (overrideMinutes > 0) {
-        manualOverride = true;
-        overrideExpiry = millis() + (overrideMinutes * 60000UL);
-        Serial.printf("⏱️  Manual override active for %d minutes\n", overrideMinutes);
-      }
-
-      // Send acknowledgement
-      sendCommandAcknowledgement(commandId, "executed");
-    }
-  }
-}
-
-// ============================================================================
-// COMMAND ACKNOWLEDGEMENT
-// ============================================================================
-
-void sendCommandAcknowledgement(String commandId, String status) {
-  HTTPClient http;
-  http.begin(API_ENDPOINT);
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("x-device-id", DEVICE_ID);
-  http.addHeader("x-device-key", DEVICE_KEY);
-
-  StaticJsonDocument<512> doc;
-  doc["firmwareVersion"] = "1.0.0";
-  
-  JsonArray readings = doc.createNestedArray("readings");
-  
-  JsonArray acks = doc.createNestedArray("acknowledgements");
-  JsonObject ack = acks.createNestedObject();
-  ack["commandId"] = commandId;
-  ack["status"] = status;
-  ack["executedAt"] = millis();
-
-  String payload;
-  serializeJson(doc, payload);
-
-  int httpCode = http.POST(payload);
-  if (httpCode == 200) {
-    Serial.printf("✓ Command %s acknowledged\n", commandId.c_str());
-  }
-
-  http.end();
-}
-
-// ============================================================================
-// WIFI CONNECTION
-// ============================================================================
-
-void connectWiFi() {
-  Serial.print("Connecting to WiFi");
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 30) {
-    delay(500);
-    Serial.print(".");
-    attempts++;
-  }
-
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\n✓ WiFi connected!");
-    Serial.print("IP Address: ");
-    Serial.println(WiFi.localIP());
-  } else {
-    Serial.println("\n✗ WiFi connection failed!");
-  }
-}
-
-// ============================================================================
-// STATUS DISPLAY
+// STATUS PRINT
 // ============================================================================
 
 void printStatus() {
-  Serial.println("\n--- System Status ---");
-  Serial.printf("Soil 1: %d%% | Soil 2: %d%% | Valve: %s\n", 
-                soil1Moisture, soil2Moisture, valveState ? "OPEN" : "CLOSED");
-  
+  Serial.println("--- Status ---");
+  Serial.printf("  Soil 1  : %d%%\n", soil1Pct);
+  Serial.printf("  Soil 2  : %d%%\n", soil2Pct);
+  Serial.printf("  Valve   : %s\n",   valveOpen ? "OPEN" : "CLOSED");
+  Serial.printf("  Mode    : %s\n",   manualOverride ? "MANUAL" : "AUTO");
   if (manualOverride) {
-    unsigned long remaining = (overrideExpiry - millis()) / 1000;
-    Serial.printf("Mode: MANUAL (expires in %lu seconds)\n", remaining);
-  } else {
-    Serial.println("Mode: AUTOMATIC");
+    Serial.printf("  Expires : %lu s\n", (overrideExpiry - millis()) / 1000UL);
   }
-  
-  Serial.println("--------------------\n");
+  Serial.println("--------------");
+}
+
+// ============================================================================
+// SETUP
+// ============================================================================
+
+void setup() {
+  Serial.begin(115200);
+  delay(500);
+
+  Serial.println("\n=== GanSys Dual Soil Irrigation ===");
+
+  // Watchdog: reset ESP32 if it hangs for >60s
+  esp_task_wdt_init(WDT_TIMEOUT_S, true);
+  esp_task_wdt_add(NULL);
+
+  // Pins
+  pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, LOW); // Valve closed on boot
+
+  // ADC (set per-pin attenuation - correct ESP32 method)
+  analogReadResolution(12);
+  analogSetPinAttenuation(SOIL_PIN_1, ADC_11db);
+  analogSetPinAttenuation(SOIL_PIN_2, ADC_11db);
+
+  connectWiFi();
+
+  Serial.println("System ready.\n");
+}
+
+// ============================================================================
+// LOOP
+// ============================================================================
+
+void loop() {
+  esp_task_wdt_reset(); // Feed watchdog
+
+  unsigned long now = millis();
+
+  // Read sensors and run irrigation logic
+  if (now - lastReadTime >= READ_INTERVAL) {
+    lastReadTime = now;
+    readSensors();
+    runIrrigationLogic();
+    printStatus();
+  }
+
+  // Sync with dashboard
+  if (now - lastSyncTime >= SYNC_INTERVAL) {
+    lastSyncTime = now;
+    syncWithDashboard();
+  }
+
+  delay(100);
 }

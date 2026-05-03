@@ -19,16 +19,26 @@ constexpr uint8_t TRIG_PIN = 5;
 constexpr uint8_t ECHO_PIN = 18;
 constexpr uint8_t PUMP_RELAY_PIN = 26;
 
-constexpr bool RELAY_ACTIVE_LOW = true;
-constexpr float TANK_EMPTY_DISTANCE_CM = 160.0f;
-constexpr float TANK_FULL_DISTANCE_CM = 20.0f;
+// Flip this if your relay LED / pump logic is opposite
+constexpr bool RELAY_ACTIVE_LOW = false;
 
-constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 15000;
-constexpr uint32_t HTTP_CONNECT_TIMEOUT_MS = 8000;
-constexpr uint32_t HTTP_TIMEOUT_MS = 10000;
-constexpr uint32_t FAILURE_RETRY_MS = 5000;
-constexpr uint32_t COMMAND_ACK_RETRY_MS = 1000;
+// Tank calibration
+constexpr float TANK_EMPTY_DISTANCE_CM = 60.0f;
+constexpr float TANK_FULL_DISTANCE_CM  = 20.0f;
 
+// Auto control thresholds
+constexpr float TANK_PUMP_ON_PERCENT  = 20.0f;
+constexpr float TANK_PUMP_OFF_PERCENT = 90.0f;
+
+// Timing
+constexpr uint32_t SYNC_INTERVAL_MS = 3000UL;          // 3 seconds
+constexpr uint32_t MANUAL_OVERRIDE_MS = 60000UL;       // 60 seconds
+constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 15000UL;
+constexpr uint32_t HTTP_CONNECT_TIMEOUT_MS = 8000UL;
+constexpr uint32_t HTTP_TIMEOUT_MS = 10000UL;
+constexpr uint32_t FAILURE_RETRY_MS = 3000UL;
+
+// Acknowledgements
 constexpr size_t ACK_QUEUE_SIZE = 8;
 constexpr size_t COMMAND_ID_LEN = 48;
 constexpr size_t ACK_STATUS_LEN = 16;
@@ -43,10 +53,15 @@ struct AckItem {
 
 AckItem ackQueue[ACK_QUEUE_SIZE];
 
-uint32_t normalSyncDelayMs = 30000;
-uint32_t nextSyncDelayMs = 5000;
+uint32_t nextSyncDelayMs = SYNC_INTERVAL_MS;
 uint32_t lastSyncMs = 0;
+
 bool pumpState = false;
+
+// Manual override state
+bool manualOverrideActive = false;
+bool manualOverrideDesiredState = false;
+uint32_t manualOverrideExpiresAtMs = 0;
 
 float clampf(float value, float low, float high) {
   if (value < low) return low;
@@ -92,14 +107,6 @@ bool queueAck(const char* commandId, const char* status, const char* message) {
   if (commandId == nullptr || commandId[0] == '\0') return false;
 
   for (size_t i = 0; i < ACK_QUEUE_SIZE; i++) {
-    if (ackQueue[i].used && strcmp(ackQueue[i].commandId, commandId) == 0) {
-      copyText(ackQueue[i].status, sizeof(ackQueue[i].status), status);
-      copyText(ackQueue[i].message, sizeof(ackQueue[i].message), message);
-      return true;
-    }
-  }
-
-  for (size_t i = 0; i < ACK_QUEUE_SIZE; i++) {
     if (!ackQueue[i].used) {
       ackQueue[i].used = true;
       copyText(ackQueue[i].commandId, sizeof(ackQueue[i].commandId), commandId);
@@ -125,15 +132,17 @@ bool connectWiFi() {
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   Serial.print("Connecting to WiFi");
-  uint32_t started = millis();
-  while (WiFi.status() != WL_CONNECTED && (millis() - started) < WIFI_CONNECT_TIMEOUT_MS) {
+  uint32_t start = millis();
+
+  while (WiFi.status() != WL_CONNECTED &&
+         (millis() - start) < WIFI_CONNECT_TIMEOUT_MS) {
     delay(500);
     Serial.print(".");
   }
   Serial.println();
 
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.print("WiFi connected. ESP32 IP: ");
+    Serial.print("WiFi connected. IP: ");
     Serial.println(WiFi.localIP());
     return true;
   }
@@ -155,57 +164,85 @@ float readDistanceOnceCm() {
   return (duration * 0.0343f) / 2.0f;
 }
 
-void sortAscending(float* values, int count) {
-  for (int i = 0; i < count - 1; i++) {
-    for (int j = i + 1; j < count; j++) {
-      if (values[j] < values[i]) {
-        float temp = values[i];
-        values[i] = values[j];
-        values[j] = temp;
-      }
-    }
-  }
-}
-
 float readTankDistanceCm() {
-  float samples[5];
-  int count = 0;
+  float total = 0.0f;
+  int valid = 0;
 
   for (int i = 0; i < 5; i++) {
-    float sample = readDistanceOnceCm();
-    if (sample > 0.0f && sample < 500.0f) {
-      samples[count++] = sample;
+    float d = readDistanceOnceCm();
+    if (d > 0.0f && d < 500.0f) {
+      total += d;
+      valid++;
     }
-    delay(60);
+    delay(50);
   }
 
-  if (count == 0) return -1.0f;
-
-  sortAscending(samples, count);
-  return samples[count / 2];
+  if (valid == 0) return -1.0f;
+  return total / valid;
 }
 
 float readTankPercent(float distanceCm) {
   if (distanceCm < 0.0f) return -1.0f;
 
-  float percent = 100.0f * (TANK_EMPTY_DISTANCE_CM - distanceCm) /
-                  (TANK_EMPTY_DISTANCE_CM - TANK_FULL_DISTANCE_CM);
+  float percent =
+      100.0f * (TANK_EMPTY_DISTANCE_CM - distanceCm) /
+      (TANK_EMPTY_DISTANCE_CM - TANK_FULL_DISTANCE_CM);
 
   return clampf(percent, 0.0f, 100.0f);
 }
 
-uint32_t computeNormalSyncDelayMs(int heartbeatSec) {
-  if (heartbeatSec < 15) heartbeatSec = 15;
+bool manualOverrideValid() {
+  if (!manualOverrideActive) return false;
 
-  uint32_t delayMs = (heartbeatSec > 5)
-    ? static_cast<uint32_t>(heartbeatSec - 5) * 1000UL
-    : 5000UL;
+  // millis() wrap-safe check
+  if ((int32_t)(millis() - manualOverrideExpiresAtMs) >= 0) {
+    manualOverrideActive = false;
+    manualOverrideDesiredState = false;
+    manualOverrideExpiresAtMs = 0;
+    return false;
+  }
 
-  if (delayMs < 5000UL) delayMs = 5000UL;
-  return delayMs;
+  return true;
 }
 
-bool processPendingCommands(JsonArray commands) {
+void cancelManualOverride() {
+  manualOverrideActive = false;
+  manualOverrideDesiredState = false;
+  manualOverrideExpiresAtMs = 0;
+}
+
+void applyPumpControl(float tankPercent) {
+  // Sensor fault => fail safe OFF
+  if (tankPercent < 0.0f) {
+    setPump(false);
+    cancelManualOverride();
+    return;
+  }
+
+  // Hard safety stop: full / high tank always forces OFF
+  if (tankPercent >= TANK_PUMP_OFF_PERCENT) {
+    setPump(false);
+    cancelManualOverride();
+    return;
+  }
+
+  // Low tank always forces ON
+  if (tankPercent <= TANK_PUMP_ON_PERCENT) {
+    setPump(true);
+    return;
+  }
+
+  // Middle zone: manual override only
+  if (manualOverrideValid()) {
+    setPump(manualOverrideDesiredState);
+    return;
+  }
+
+  // Middle zone without manual override:
+  // keep current pump state
+}
+
+bool processPendingCommands(JsonArray commands, float tankPercent) {
   if (commands.isNull()) return false;
 
   bool queuedAnyAck = false;
@@ -218,12 +255,12 @@ bool processPendingCommands(JsonArray commands) {
     if (commandId[0] == '\0') continue;
 
     if (ackQueuedFor(commandId)) {
-      Serial.printf("Command %s already applied; waiting to deliver ack.\n", commandId);
+      Serial.printf("Command %s already queued.\n", commandId);
       continue;
     }
 
     if (strcmp(channelKey, PUMP_CHANNEL_KEY) != 0) {
-      queuedAnyAck |= queueAck(commandId, "failed", "Unsupported channel for this firmware");
+      queuedAnyAck |= queueAck(commandId, "failed", "Unsupported channel");
       continue;
     }
 
@@ -237,16 +274,27 @@ bool processPendingCommands(JsonArray commands) {
       continue;
     }
 
-    bool nextState = cmd["desiredBooleanState"].as<bool>();
-    setPump(nextState);
+    bool desiredState = cmd["desiredBooleanState"].as<bool>();
+
+    // Dashboard command cannot force ON when tank is already high/full
+    if (tankPercent >= TANK_PUMP_OFF_PERCENT && desiredState) {
+      queuedAnyAck |= queueAck(commandId, "failed", "Pump blocked: tank already full");
+      continue;
+    }
+
+    // Manual override lasts 60 seconds, but auto control still wins at 90%+
+    manualOverrideActive = true;
+    manualOverrideDesiredState = desiredState;
+    manualOverrideExpiresAtMs = millis() + MANUAL_OVERRIDE_MS;
 
     queuedAnyAck |= queueAck(
       commandId,
       "acknowledged",
-      nextState ? "Pump turned on" : "Pump turned off"
+      "Manual override active for 60 seconds"
     );
 
-    Serial.printf("Applied command %s: pump %s\n", commandId, nextState ? "ON" : "OFF");
+    Serial.printf("Applied command %s: manual override %s for 60s\n",
+                  commandId, desiredState ? "ON" : "OFF");
   }
 
   return queuedAnyAck;
@@ -260,6 +308,9 @@ void syncDevice() {
 
   float distanceCm = readTankDistanceCm();
   float tankPercent = readTankPercent(distanceCm);
+
+  // Apply local safety control before reporting
+  applyPumpControl(tankPercent);
 
   DynamicJsonDocument requestDoc(2048);
   requestDoc["firmwareVersion"] = FIRMWARE_VERSION;
@@ -302,25 +353,14 @@ void syncDevice() {
   String body;
   serializeJson(requestDoc, body);
 
-  const bool useTls = strncmp(SERVER_URL, "https://", 8) == 0;
-  WiFiClient plainClient;
   WiFiClientSecure secureClient;
-  HTTPClient http;
+  secureClient.setInsecure();
 
-  if (useTls) {
-    // Replace with a real CA certificate for production.
-    secureClient.setInsecure();
-    if (!http.begin(secureClient, SERVER_URL)) {
-      Serial.println("HTTPS begin failed.");
-      nextSyncDelayMs = FAILURE_RETRY_MS;
-      return;
-    }
-  } else {
-    if (!http.begin(plainClient, SERVER_URL)) {
-      Serial.println("HTTP begin failed.");
-      nextSyncDelayMs = FAILURE_RETRY_MS;
-      return;
-    }
+  HTTPClient http;
+  if (!http.begin(secureClient, SERVER_URL)) {
+    Serial.println("HTTPS begin failed.");
+    nextSyncDelayMs = FAILURE_RETRY_MS;
+    return;
   }
 
   http.addHeader("Content-Type", "application/json");
@@ -330,10 +370,6 @@ void syncDevice() {
   http.setTimeout(HTTP_TIMEOUT_MS);
 
   Serial.println("----- Sync Start -----");
-  Serial.print("POST URL: ");
-  Serial.println(SERVER_URL);
-  Serial.print("Transport: ");
-  Serial.println(useTls ? "HTTPS" : "HTTP");
   Serial.print("Payload: ");
   Serial.println(body);
 
@@ -358,6 +394,7 @@ void syncDevice() {
     return;
   }
 
+  // Server accepted the sync, so acknowledgements can be cleared
   clearAckQueue();
 
   DynamicJsonDocument responseDoc(8192);
@@ -370,13 +407,18 @@ void syncDevice() {
     return;
   }
 
-  int heartbeatSec = responseDoc["controller"]["heartbeatIntervalSec"] | 60;
-  normalSyncDelayMs = computeNormalSyncDelayMs(heartbeatSec);
-
   JsonArray pendingCommands = responseDoc["pendingCommands"].as<JsonArray>();
-  processPendingCommands(pendingCommands);
+  processPendingCommands(pendingCommands, tankPercent);
 
-  nextSyncDelayMs = hasPendingAcks() ? COMMAND_ACK_RETRY_MS : normalSyncDelayMs;
+  // Re-apply control after dashboard command handling
+  applyPumpControl(tankPercent);
+
+  // Fixed 3-second polling
+  nextSyncDelayMs = SYNC_INTERVAL_MS;
+
+  if (hasPendingAcks()) {
+    nextSyncDelayMs = 1000UL;
+  }
 
   Serial.printf("Next sync in %lu ms\n", nextSyncDelayMs);
   Serial.println("----- Sync End -----");
@@ -402,6 +444,7 @@ void setup() {
 
 void loop() {
   uint32_t now = millis();
+
   if ((uint32_t)(now - lastSyncMs) >= nextSyncDelayMs) {
     lastSyncMs = now;
     syncDevice();
