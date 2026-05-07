@@ -2,7 +2,7 @@ import { and, asc, eq } from "drizzle-orm";
 
 import { hashToken } from "@/lib/auth";
 import { db } from "@/lib/db/client";
-import { channels, commands, controllers } from "@/lib/db/schema";
+import { channels, commands, controllers, scheduledCommands } from "@/lib/db/schema";
 import { safeJsonParse } from "@/lib/utils";
 import { resolveOpenAlerts } from "./alert.service";
 import { applyAcknowledgements, expirePendingCommands } from "./command.service";
@@ -53,11 +53,14 @@ export async function deviceSync(
   await expirePendingCommands(controller.id, controller.userId);
   await resolveOpenAlerts(controller.userId, controller.id, "offline");
 
-  const [channelConfig, pendingCommands] = await Promise.all([
+  const [channelConfig, pendingCommands, pendingScheduledCommands] = await Promise.all([
     db.select().from(channels).where(eq(channels.controllerId, controller.id)).orderBy(channels.sortOrder),
     db.select().from(commands)
       .where(and(eq(commands.controllerId, controller.id), eq(commands.status, "pending")))
       .orderBy(asc(commands.createdAt)),
+    db.select().from(scheduledCommands)
+      .where(and(eq(scheduledCommands.controllerId, controller.id), eq(scheduledCommands.status, "pending")))
+      .orderBy(asc(scheduledCommands.scheduledFor)),
   ]);
 
   const channelKeyById = new Map(channelConfig.map((c) => [c.id, c.channelKey]));
@@ -90,6 +93,16 @@ export async function deviceSync(
       desiredBooleanState: cmd.desiredBooleanState,
       desiredNumericValue: cmd.desiredNumericValue,
       overrideUntil: cmd.overrideUntil,
+      note: cmd.note,
+    })),
+    scheduledCommands: pendingScheduledCommands.map((cmd) => ({
+      commandId: cmd.id,
+      channelId: cmd.channelId,
+      channelKey: channelKeyById.get(cmd.channelId) ?? null,
+      commandType: cmd.commandType,
+      desiredBooleanState: cmd.desiredBooleanState,
+      desiredNumericValue: cmd.desiredNumericValue,
+      scheduledFor: cmd.scheduledFor instanceof Date ? cmd.scheduledFor.toISOString() : String(cmd.scheduledFor),
       note: cmd.note,
     })),
     pestControlSchedule,
