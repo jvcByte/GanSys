@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm";
 
 import { createId } from "@/lib/auth";
 import { db } from "@/lib/db/client";
-import { channels, commands } from "@/lib/db/schema";
+import { channels, commands, scheduledCommands } from "@/lib/db/schema";
 import type { CommandView } from "@/lib/types";
 import { resolveOpenAlerts, upsertOpenAlert } from "./alert.service";
 import { computeControllerStatus, getControllerOwnedByUser } from "./controller.service";
@@ -73,35 +73,76 @@ export async function applyAcknowledgements(
   acknowledgements: Array<{ commandId: string; status: string; executedAt?: string; deviceMessage?: string }>
 ) {
   for (const ack of acknowledgements) {
-    const rows = await db.select().from(commands)
+    // Check if it's a regular command
+    const commandRows = await db.select().from(commands)
       .where(and(eq(commands.id, ack.commandId), eq(commands.controllerId, controllerId)));
-    const command = rows[0];
-    if (!command) continue;
+    const command = commandRows[0];
+    
+    // Check if it's a scheduled command
+    const scheduledRows = await db.select().from(scheduledCommands)
+      .where(and(eq(scheduledCommands.id, ack.commandId), eq(scheduledCommands.controllerId, controllerId)));
+    const scheduledCommand = scheduledRows[0];
+
+    if (!command && !scheduledCommand) continue;
 
     const ackedAt = ack.executedAt ? new Date(ack.executedAt) : now();
-    await db.update(commands)
-      .set({ status: ack.status, acknowledgedAt: ackedAt, deviceMessage: ack.deviceMessage ?? null })
-      .where(eq(commands.id, command.id));
 
-    if (ack.status === "acknowledged") {
-      if (command.desiredBooleanState !== null) {
-        await db.update(channels).set({
-          latestBooleanState: command.desiredBooleanState,
-          latestNumericValue: command.desiredBooleanState ? 1 : 0,
-          latestStatus: "ok",
-          lastSampleAt: ackedAt,
-          updatedAt: now(),
-        }).where(eq(channels.id, command.channelId));
+    // Handle regular command acknowledgement
+    if (command) {
+      await db.update(commands)
+        .set({ status: ack.status, acknowledgedAt: ackedAt, deviceMessage: ack.deviceMessage ?? null })
+        .where(eq(commands.id, command.id));
+
+      if (ack.status === "acknowledged") {
+        if (command.desiredBooleanState !== null) {
+          await db.update(channels).set({
+            latestBooleanState: command.desiredBooleanState,
+            latestNumericValue: command.desiredBooleanState ? 1 : 0,
+            latestStatus: "ok",
+            lastSampleAt: ackedAt,
+            updatedAt: now(),
+          }).where(eq(channels.id, command.channelId));
+        }
+        await resolveOpenAlerts(userId, controllerId, "manual_override", command.channelId);
+        await resolveOpenAlerts(userId, controllerId, "command_failure", command.channelId);
+      } else {
+        await upsertOpenAlert({
+          userId, controllerId, channelId: command.channelId,
+          type: "command_failure", severity: "warning",
+          title: "Manual command failed",
+          message: ack.deviceMessage ?? "The controller did not acknowledge the command successfully.",
+        });
       }
-      await resolveOpenAlerts(userId, controllerId, "manual_override", command.channelId);
-      await resolveOpenAlerts(userId, controllerId, "command_failure", command.channelId);
-    } else {
-      await upsertOpenAlert({
-        userId, controllerId, channelId: command.channelId,
-        type: "command_failure", severity: "warning",
-        title: "Manual command failed",
-        message: ack.deviceMessage ?? "The controller did not acknowledge the command successfully.",
-      });
+    }
+
+    // Handle scheduled command acknowledgement
+    if (scheduledCommand) {
+      if (ack.status === "acknowledged" || ack.status === "executed") {
+        await db.update(scheduledCommands)
+          .set({ 
+            status: "executed", 
+            executedAt: ackedAt,
+          })
+          .where(eq(scheduledCommands.id, scheduledCommand.id));
+
+        if (scheduledCommand.desiredBooleanState !== null) {
+          await db.update(channels).set({
+            latestBooleanState: scheduledCommand.desiredBooleanState,
+            latestNumericValue: scheduledCommand.desiredBooleanState ? 1 : 0,
+            latestStatus: "ok",
+            lastSampleAt: ackedAt,
+            updatedAt: now(),
+          }).where(eq(channels.id, scheduledCommand.channelId));
+        }
+      } else {
+        await db.update(scheduledCommands)
+          .set({ 
+            status: "failed", 
+            executedAt: ackedAt,
+            failureReason: ack.deviceMessage ?? "Scheduled command execution failed"
+          })
+          .where(eq(scheduledCommands.id, scheduledCommand.id));
+      }
     }
   }
 }

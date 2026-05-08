@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, lte } from "drizzle-orm";
 
 import { hashToken } from "@/lib/auth";
 import { db } from "@/lib/db/client";
@@ -26,6 +26,13 @@ export type DeviceSyncBody = {
   firmwareVersion?: string;
   readings: DeviceReadingInput[];
   acknowledgements?: DeviceAckInput[];
+  scheduledCommands?: Array<{
+    commandId: string;
+    channelKey: string;
+    scheduledFor: string;
+    desiredBooleanState?: boolean;
+    note?: string;
+  }>;
 };
 
 export async function deviceSync(
@@ -53,14 +60,34 @@ export async function deviceSync(
   await expirePendingCommands(controller.id, controller.userId);
   await resolveOpenAlerts(controller.userId, controller.id, "offline");
 
-  const [channelConfig, pendingCommands, pendingScheduledCommands] = await Promise.all([
+  // Auto-expire scheduled commands that are more than 5 minutes past their scheduled time
+  const fiveMinutesAgo = new Date(now().getTime() - 5 * 60 * 1000);
+  await db.update(scheduledCommands)
+    .set({ 
+      status: "failed", 
+      executedAt: now(),
+      failureReason: "Scheduled time passed without execution" 
+    })
+    .where(and(
+      eq(scheduledCommands.controllerId, controller.id),
+      eq(scheduledCommands.status, "pending"),
+      lte(scheduledCommands.scheduledFor, fiveMinutesAgo)
+    ));
+
+  // Get pending scheduled commands (future only)
+  const currentTime = now();
+  const pendingScheduledCommands = await db.select().from(scheduledCommands)
+    .where(and(
+      eq(scheduledCommands.controllerId, controller.id), 
+      eq(scheduledCommands.status, "pending")
+    ))
+    .orderBy(asc(scheduledCommands.scheduledFor));
+
+  const [channelConfig, pendingCommands] = await Promise.all([
     db.select().from(channels).where(eq(channels.controllerId, controller.id)).orderBy(channels.sortOrder),
     db.select().from(commands)
       .where(and(eq(commands.controllerId, controller.id), eq(commands.status, "pending")))
       .orderBy(asc(commands.createdAt)),
-    db.select().from(scheduledCommands)
-      .where(and(eq(scheduledCommands.controllerId, controller.id), eq(scheduledCommands.status, "pending")))
-      .orderBy(asc(scheduledCommands.scheduledFor)),
   ]);
 
   const channelKeyById = new Map(channelConfig.map((c) => [c.id, c.channelKey]));
