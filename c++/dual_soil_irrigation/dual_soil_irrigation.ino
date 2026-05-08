@@ -1,80 +1,79 @@
 // =============================================================================
 //  Soil Irrigation Controller – ESP32 (Slave Time Client)
-//  2× Capacitive Soil Sensors → 1× Solenoid Valve
+//  1× Capacitive Soil Sensor → 1× Solenoid Valve
 //  Syncs to GAN Systems cloud API every 3 seconds
-//  Gets time from master ESP32 over mDNS + HTTP
+//  Uses cloud serverTime for scheduling
+//  Calibration can be changed from Serial Monitor and saved in ESP32 memory
 // =============================================================================
 
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
-#include <ESPmDNS.h>
+#include <Preferences.h>
 #include <string.h>
+#include <math.h>
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Network & API
 // ─────────────────────────────────────────────────────────────────────────────
-const char* WIFI_SSID              = "Ikop";
-const char* WIFI_PASSWORD          = "maxy1234";
+const char* WIFI_SSID        = "Ikop";
+const char* WIFI_PASSWORD    = "maxy1234";
 
-const char* SERVER_URL             = "https://gansystems.vercel.app/api/device/sync";
-const char* DEVICE_ID              = "ESP32-SOIL-IRRIGATION";
-const char* DEVICE_KEY             = "t-La6ONbo9xahSp1sczrZkQjw27yZwW2";
-const char* FIRMWARE_VERSION       = "1.0.0";
+const char* SERVER_URL       = "https://gansystems.vercel.app/api/device/sync";
+const char* DEVICE_ID        = "ESP32-SOIL-IRRIGATION";
+const char* DEVICE_KEY       = "t-La6ONbo9xahSp1sczrZkQjw27yZwW2";
+const char* FIRMWARE_VERSION = "1.0.0";
 
-// Master time source over LAN
-const char* MASTER_HOSTNAME        = "rtc-master";   // resolves to rtc-master.local
-const char* MASTER_TIME_PATH       = "/epoch";       // master returns plain epoch seconds
+// 1 hour offset for local time (UTC+1)
+constexpr int32_t SERVER_TIME_OFFSET_SEC = 3600;
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Channel keys (must match dashboard exactly)
+//  Channel keys
 // ─────────────────────────────────────────────────────────────────────────────
-const char* SOIL_ZONE1_KEY         = "soil_zone_1";    // Sensor 1
-const char* SOIL_MOISTURE_KEY      = "soil_moisture";   // Sensor 2
-const char* VALVE_CHANNEL_KEY      = "irrigation_valve_1";
+const char* SOIL_CHANNEL_KEY  = "soil_zone_1";
+const char* VALVE_CHANNEL_KEY = "irrigation_valve_1";
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Hardware pins
 // ─────────────────────────────────────────────────────────────────────────────
-constexpr uint8_t SOIL_SENSOR1_PIN  = 34;   // ADC1 channel – capacitive sensor 1
-constexpr uint8_t SOIL_SENSOR2_PIN  = 35;   // ADC1 channel – capacitive sensor 2
-constexpr uint8_t VALVE_RELAY_PIN   = 26;   // Solenoid valve relay
+constexpr uint8_t SOIL_SENSOR_PIN = 34;
+constexpr uint8_t VALVE_RELAY_PIN  = 26;
 
 // Flip to true if your relay board uses active-LOW logic
-constexpr bool RELAY_ACTIVE_LOW     = false;
+constexpr bool RELAY_ACTIVE_LOW = false;
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Sensor calibration
+//  Default sensor calibration
 // ─────────────────────────────────────────────────────────────────────────────
-constexpr int   SOIL_ADC_DRY        = 2500;   // ADC reading in dry soil / air
-constexpr int   SOIL_ADC_WET        = 1000;   // ADC reading in saturated soil
-constexpr int   ADC_SAMPLES         = 10;
-constexpr int   ADC_SAMPLE_DELAY_MS = 5;
+constexpr int DEFAULT_SOIL_ADC_DRY = 2700;
+constexpr int DEFAULT_SOIL_ADC_WET = 1200;
+
+constexpr int ADC_SAMPLES         = 20;
+constexpr int ADC_SAMPLE_DELAY_MS = 10;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Auto-irrigation thresholds
 // ─────────────────────────────────────────────────────────────────────────────
-constexpr float VALVE_OPEN_THRESHOLD_PCT  = 30.0f;
+constexpr float VALVE_OPEN_THRESHOLD_PCT  = 35.0f;
 constexpr float VALVE_CLOSE_THRESHOLD_PCT = 70.0f;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Timing
 // ─────────────────────────────────────────────────────────────────────────────
-constexpr uint32_t SYNC_INTERVAL_MS          = 3000UL;
-constexpr uint32_t TIME_SYNC_INTERVAL_MS     = 15000UL;  // resync slave clock every 15 s
-constexpr uint32_t MANUAL_OVERRIDE_MS        = 60000UL;
-constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS   = 15000UL;
-constexpr uint32_t HTTP_CONNECT_TIMEOUT_MS   = 8000UL;
-constexpr uint32_t HTTP_TIMEOUT_MS           = 10000UL;
-constexpr uint32_t FAILURE_RETRY_MS          = 3000UL;
-constexpr uint32_t MAX_VALVE_OPEN_MS         = 300000UL;  // 5 minutes
+constexpr uint32_t SYNC_INTERVAL_MS        = 3000UL;
+constexpr uint32_t MANUAL_OVERRIDE_MS      = 60000UL;
+constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 15000UL;
+constexpr uint32_t HTTP_CONNECT_TIMEOUT_MS = 8000UL;
+constexpr uint32_t HTTP_TIMEOUT_MS         = 10000UL;
+constexpr uint32_t FAILURE_RETRY_MS        = 3000UL;
+constexpr uint32_t MAX_VALVE_OPEN_MS       = 300000UL;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Acknowledgement queue
 // ─────────────────────────────────────────────────────────────────────────────
-constexpr size_t ACK_QUEUE_SIZE    = 8;
-constexpr size_t COMMAND_ID_LEN    = 48;
+constexpr size_t ACK_QUEUE_SIZE  = 8;
+constexpr size_t COMMAND_ID_LEN   = 48;
 constexpr size_t ACK_STATUS_LEN    = 16;
 constexpr size_t ACK_MESSAGE_LEN   = 96;
 
@@ -88,31 +87,55 @@ struct AckItem {
 AckItem ackQueue[ACK_QUEUE_SIZE];
 
 // ─────────────────────────────────────────────────────────────────────────────
+//  Scheduled Commands Storage
+// ─────────────────────────────────────────────────────────────────────────────
+constexpr size_t MAX_SCHEDULED_COMMANDS = 10;
+constexpr size_t CHANNEL_KEY_LEN = 32;
+constexpr size_t NOTE_LEN = 96;
+
+struct ScheduledCommand {
+  bool active;
+  char commandId[COMMAND_ID_LEN];
+  char channelKey[CHANNEL_KEY_LEN];
+  char commandType[16];
+  bool desiredBooleanState;
+  float desiredNumericValue;
+  uint32_t scheduledEpoch;
+  char note[NOTE_LEN];
+};
+
+ScheduledCommand scheduledCommands[MAX_SCHEDULED_COMMANDS];
+
+// ─────────────────────────────────────────────────────────────────────────────
 //  Runtime state
 // ─────────────────────────────────────────────────────────────────────────────
-bool valveState                 = false;
-uint32_t valveOpenedAtEpoch     = 0;
+Preferences prefs;
 
-// Manual override state uses master epoch time
-bool manualOverrideActive       = false;
+bool valveState = false;
+uint32_t valveOpenedAtEpoch = 0;
+
+bool manualOverrideActive = false;
 bool manualOverrideDesiredState = false;
 uint32_t manualOverrideExpiresAtEpoch = 0;
 
-// Slave time state
-bool timeSynced                 = false;
-uint32_t lastKnownEpoch         = 0;      // epoch obtained from master
-uint32_t lastEpochSyncMs        = 0;      // local millis when master time was fetched
-uint32_t lastTimeSyncAttemptMs  = 0;
+bool timeSynced = false;
+uint32_t lastKnownEpoch = 0;
+uint32_t lastEpochSyncMs = 0;
 
-uint32_t lastSyncMs             = 0;
-uint32_t nextSyncDelayMs        = SYNC_INTERVAL_MS;
+uint32_t lastSyncMs = 0;
+uint32_t nextSyncDelayMs = SYNC_INTERVAL_MS;
 
-// Sensor cache
+int soilAdcDry = DEFAULT_SOIL_ADC_DRY;
+int soilAdcWet = DEFAULT_SOIL_ADC_WET;
+bool calibrationLockedByUser = false;
+
 struct SoilReading {
-  int   adc;        // raw ADC value
-  float percent;    // 0–100 %, -1 = fault
-  bool  fault;
+  int adc;
+  float percent;
+  bool fault;
 };
+
+String serialLine;
 
 // =============================================================================
 //  Utility helpers
@@ -121,14 +144,14 @@ float clampf(float v, float lo, float hi) {
   return v < lo ? lo : (v > hi ? hi : v);
 }
 
+float round1(float v) {
+  return roundf(v * 10.0f) / 10.0f;
+}
+
 void copyText(char* dest, size_t destSize, const char* src) {
   if (destSize == 0) return;
   strncpy(dest, src ? src : "", destSize - 1);
   dest[destSize - 1] = '\0';
-}
-
-void formatEpoch(uint32_t epoch, char* out, size_t outSize) {
-  snprintf(out, outSize, "%lu", (unsigned long)epoch);
 }
 
 uint32_t currentEpoch() {
@@ -137,6 +160,186 @@ uint32_t currentEpoch() {
     return lastKnownEpoch + elapsedSec;
   }
   return millis() / 1000UL;
+}
+
+int64_t daysFromCivil(int y, unsigned m, unsigned d) {
+  y -= (m <= 2);
+  const int era = (y >= 0 ? y : y - 399) / 400;
+  const unsigned yoe = (unsigned)(y - era * 400);
+  const unsigned doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+  const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+  return (int64_t)era * 146097 + (int64_t)doe - 719468;
+}
+
+bool parseServerTimeToEpoch(const String& isoTime, uint32_t& epochOut) {
+  String s = isoTime;
+  s.trim();
+  if (s.length() < 19) return false;
+
+  int Y = 0, M = 0, D = 0, h = 0, m = 0, sec = 0;
+  if (sscanf(s.c_str(), "%d-%d-%dT%d:%d:%d", &Y, &M, &D, &h, &m, &sec) != 6) {
+    return false;
+  }
+
+  if (Y < 1970 || M < 1 || M > 12 || D < 1 || D > 31 ||
+      h < 0 || h > 23 || m < 0 || m > 59 || sec < 0 || sec > 60) {
+    return false;
+  }
+
+  int64_t days = daysFromCivil(Y, (unsigned)M, (unsigned)D);
+  int64_t epoch =
+      days * 86400LL +
+      (int64_t)h * 3600LL +
+      (int64_t)m * 60LL +
+      (int64_t)sec;
+
+  epoch += SERVER_TIME_OFFSET_SEC;
+
+  if (epoch <= 0 || epoch > 0xFFFFFFFFLL) return false;
+
+  epochOut = (uint32_t)epoch;
+  return true;
+}
+
+// =============================================================================
+//  Calibration persistence
+// =============================================================================
+void printCalibration();
+
+void saveCalibration() {
+  prefs.putInt("dry", soilAdcDry);
+  prefs.putInt("wet", soilAdcWet);
+  prefs.putBool("locked", calibrationLockedByUser);
+}
+
+void loadCalibration() {
+  prefs.begin("soilcal", false);
+
+  soilAdcDry = prefs.getInt("dry", DEFAULT_SOIL_ADC_DRY);
+  soilAdcWet = prefs.getInt("wet", DEFAULT_SOIL_ADC_WET);
+  calibrationLockedByUser = prefs.getBool("locked", false);
+
+  if (soilAdcDry <= 0 || soilAdcWet <= 0 || soilAdcDry == soilAdcWet) {
+    soilAdcDry = DEFAULT_SOIL_ADC_DRY;
+    soilAdcWet = DEFAULT_SOIL_ADC_WET;
+    calibrationLockedByUser = false;
+    saveCalibration();
+  }
+
+  if (soilAdcDry < soilAdcWet) {
+    int tmp = soilAdcDry;
+    soilAdcDry = soilAdcWet;
+    soilAdcWet = tmp;
+  }
+}
+
+void lockUserCalibration() {
+  calibrationLockedByUser = true;
+  saveCalibration();
+}
+
+void resetCalibration() {
+  soilAdcDry = DEFAULT_SOIL_ADC_DRY;
+  soilAdcWet = DEFAULT_SOIL_ADC_WET;
+  calibrationLockedByUser = false;
+  saveCalibration();
+
+  Serial.println("[CAL] Calibration reset to defaults.");
+  printCalibration();
+}
+
+void printCalibration() {
+  Serial.println();
+  Serial.println("=== Calibration ===");
+  Serial.printf("Dry value : %d\n", soilAdcDry);
+  Serial.printf("Wet value : %d\n", soilAdcWet);
+  Serial.printf("Source    : %s\n", calibrationLockedByUser ? "USER / NVS" : "SERVER / DEFAULT");
+  Serial.println("Commands:");
+  Serial.println("  show         -> show current calibration and sensor reading");
+  Serial.println("  dry          -> save current sensor reading as DRY");
+  Serial.println("  wet          -> save current sensor reading as WET");
+  Serial.println("  set dry 2800 -> manually set dry value");
+  Serial.println("  set wet 1200 -> manually set wet value");
+  Serial.println("  reset        -> restore default calibration and allow server updates");
+  Serial.println("  help         -> show commands");
+  Serial.println();
+}
+
+int readSoilADC() {
+  long total = 0;
+  for (int i = 0; i < ADC_SAMPLES; i++) {
+    total += analogRead(SOIL_SENSOR_PIN);
+    delay(ADC_SAMPLE_DELAY_MS);
+    yield();
+  }
+  return (int)(total / ADC_SAMPLES);
+}
+
+bool normalizeCalibration() {
+  if (soilAdcDry <= 0 || soilAdcWet <= 0 || soilAdcDry == soilAdcWet) {
+    return false;
+  }
+
+  if (soilAdcDry < soilAdcWet) {
+    int tmp = soilAdcDry;
+    soilAdcDry = soilAdcWet;
+    soilAdcWet = tmp;
+  }
+
+  return true;
+}
+
+float adcToPercent(int adc) {
+  if (!normalizeCalibration()) return -1.0f;
+
+  float pct = 100.0f * (float)(soilAdcDry - adc) /
+              (float)(soilAdcDry - soilAdcWet);
+
+  pct = clampf(pct, 0.0f, 100.0f);
+  return round1(pct);
+}
+
+SoilReading readSensor() {
+  SoilReading r;
+  r.adc = readSoilADC();
+  r.percent = adcToPercent(r.adc);
+  r.fault = (r.percent < 0.0f);
+  return r;
+}
+
+// =============================================================================
+//  Server calibration
+// =============================================================================
+void applyServerCalibration(JsonArray channelConfig) {
+  if (channelConfig.isNull()) return;
+  if (calibrationLockedByUser) {
+    Serial.println("[CAL] User calibration locked; skipping server calibration.");
+    return;
+  }
+
+  for (JsonObject ch : channelConfig) {
+    const char* key = ch["channelKey"] | "";
+    if (strcmp(key, SOIL_CHANNEL_KEY) != 0) continue;
+
+    JsonObject cal = ch["calibration"];
+    if (cal.isNull()) return;
+
+    int serverDry = cal["dryAdc"] | 0;
+    int serverWet = cal["wetAdc"] | 0;
+
+    if (serverDry > 0 && serverWet > 0 && serverDry != serverWet) {
+      bool changed = (serverDry != soilAdcDry || serverWet != soilAdcWet);
+      if (changed) {
+        soilAdcDry = serverDry;
+        soilAdcWet = serverWet;
+        normalizeCalibration();
+        saveCalibration();
+        Serial.printf("[CAL] Updated from server – Dry: %d  Wet: %d\n",
+                      soilAdcDry, soilAdcWet);
+      }
+    }
+    return;
+  }
 }
 
 // =============================================================================
@@ -175,14 +378,180 @@ bool queueAck(const char* commandId, const char* status, const char* message) {
     if (!ackQueue[i].used) {
       ackQueue[i].used = true;
       copyText(ackQueue[i].commandId, sizeof(ackQueue[i].commandId), commandId);
-      copyText(ackQueue[i].status,    sizeof(ackQueue[i].status),    status);
-      copyText(ackQueue[i].message,   sizeof(ackQueue[i].message),   message);
+      copyText(ackQueue[i].status, sizeof(ackQueue[i].status), status);
+      copyText(ackQueue[i].message, sizeof(ackQueue[i].message), message);
       return true;
     }
   }
 
   Serial.println("[ACK] Queue full – dropping acknowledgement.");
   return false;
+}
+
+// =============================================================================
+//  Scheduled Commands Management
+// =============================================================================
+void clearScheduledCommands() {
+  for (size_t i = 0; i < MAX_SCHEDULED_COMMANDS; i++) {
+    scheduledCommands[i].active = false;
+    scheduledCommands[i].commandId[0] = '\0';
+    scheduledCommands[i].channelKey[0] = '\0';
+    scheduledCommands[i].commandType[0] = '\0';
+    scheduledCommands[i].desiredBooleanState = false;
+    scheduledCommands[i].desiredNumericValue = 0.0f;
+    scheduledCommands[i].scheduledEpoch = 0;
+    scheduledCommands[i].note[0] = '\0';
+  }
+}
+
+uint32_t parseScheduledTimeToEpoch(const char* isoTime) {
+  // Parse ISO 8601 format: "2024-05-04T15:00:00.000Z"
+  if (isoTime == nullptr || strlen(isoTime) < 19) return 0;
+
+  int year, month, day, hour, minute, second;
+  if (sscanf(isoTime, "%d-%d-%dT%d:%d:%d", 
+             &year, &month, &day, &hour, &minute, &second) != 6) {
+    return 0;
+  }
+
+  // Convert to epoch using the same method as parseServerTimeToEpoch
+  int64_t days = daysFromCivil(year, (unsigned)month, (unsigned)day);
+  int64_t epoch =
+      days * 86400LL +
+      (int64_t)hour * 3600LL +
+      (int64_t)minute * 60LL +
+      (int64_t)second;
+
+  // Apply same offset as server time
+  epoch += SERVER_TIME_OFFSET_SEC;
+
+  if (epoch <= 0 || epoch > 0xFFFFFFFFLL) return 0;
+
+  return (uint32_t)epoch;
+}
+
+bool isScheduledCommandStored(const char* commandId) {
+  if (commandId == nullptr || commandId[0] == '\0') return false;
+
+  for (size_t i = 0; i < MAX_SCHEDULED_COMMANDS; i++) {
+    if (scheduledCommands[i].active && 
+        strcmp(scheduledCommands[i].commandId, commandId) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool storeScheduledCommand(JsonObject cmd) {
+  const char* commandId = cmd["commandId"] | "";
+  const char* channelKey = cmd["channelKey"] | "";
+  const char* commandType = cmd["commandType"] | "";
+  const char* scheduledFor = cmd["scheduledFor"] | "";
+  const char* note = cmd["note"] | "";
+
+  if (commandId[0] == '\0' || channelKey[0] == '\0' || scheduledFor[0] == '\0') {
+    Serial.println("[SCHED] Invalid scheduled command data");
+    return false;
+  }
+
+  // Check if already stored
+  if (isScheduledCommandStored(commandId)) {
+    return true;  // Already have it
+  }
+
+  // Parse scheduled time
+  uint32_t scheduledEpoch = parseScheduledTimeToEpoch(scheduledFor);
+  if (scheduledEpoch == 0) {
+    Serial.printf("[SCHED] Failed to parse time: %s\n", scheduledFor);
+    return false;
+  }
+
+  // Find empty slot
+  for (size_t i = 0; i < MAX_SCHEDULED_COMMANDS; i++) {
+    if (!scheduledCommands[i].active) {
+      scheduledCommands[i].active = true;
+      copyText(scheduledCommands[i].commandId, sizeof(scheduledCommands[i].commandId), commandId);
+      copyText(scheduledCommands[i].channelKey, sizeof(scheduledCommands[i].channelKey), channelKey);
+      copyText(scheduledCommands[i].commandType, sizeof(scheduledCommands[i].commandType), commandType);
+      copyText(scheduledCommands[i].note, sizeof(scheduledCommands[i].note), note);
+      
+      scheduledCommands[i].desiredBooleanState = cmd["desiredBooleanState"] | false;
+      scheduledCommands[i].desiredNumericValue = cmd["desiredNumericValue"] | 0.0f;
+      scheduledCommands[i].scheduledEpoch = scheduledEpoch;
+
+      Serial.printf("[SCHED] Stored command %s for epoch %lu (%s)\n", 
+                    commandId, scheduledEpoch, scheduledFor);
+      Serial.printf("[SCHED] Channel: %s, Action: %s\n", 
+                    channelKey, 
+                    scheduledCommands[i].desiredBooleanState ? "OPEN" : "CLOSE");
+      return true;
+    }
+  }
+
+  Serial.println("[SCHED] Storage full; cannot store more scheduled commands");
+  return false;
+}
+
+void removeScheduledCommand(size_t index) {
+  if (index >= MAX_SCHEDULED_COMMANDS) return;
+  scheduledCommands[index].active = false;
+}
+
+void checkAndExecuteScheduledCommands(uint32_t nowEpoch, float moisturePct) {
+  for (size_t i = 0; i < MAX_SCHEDULED_COMMANDS; i++) {
+    if (!scheduledCommands[i].active) continue;
+
+    // Check if scheduled time has arrived or passed
+    if (nowEpoch >= scheduledCommands[i].scheduledEpoch) {
+      Serial.printf("[SCHED] ⏰ Executing scheduled command: %s\n", 
+                    scheduledCommands[i].commandId);
+      Serial.printf("[SCHED] Scheduled for: %lu, Current: %lu\n", 
+                    scheduledCommands[i].scheduledEpoch, nowEpoch);
+
+      // Check if it's for the valve channel
+      if (strcmp(scheduledCommands[i].channelKey, VALVE_CHANNEL_KEY) == 0) {
+        bool desiredState = scheduledCommands[i].desiredBooleanState;
+
+        // Safety check: don't open valve if soil is already saturated
+        if (desiredState && moisturePct >= VALVE_CLOSE_THRESHOLD_PCT) {
+          Serial.printf("[SCHED] ⚠️  Blocked: Soil already saturated (%.1f%%)\n", moisturePct);
+          queueAck(scheduledCommands[i].commandId, 
+                   "failed", 
+                   "Valve blocked: soil already saturated");
+        } else {
+          // Execute the command
+          manualOverrideActive = true;
+          manualOverrideDesiredState = desiredState;
+          manualOverrideExpiresAtEpoch = nowEpoch + (MANUAL_OVERRIDE_MS / 1000UL);
+
+          Serial.printf("[SCHED] ✓ Valve set to %s for %lu seconds\n", 
+                        desiredState ? "OPEN" : "CLOSE",
+                        (unsigned long)(MANUAL_OVERRIDE_MS / 1000UL));
+
+          queueAck(scheduledCommands[i].commandId, 
+                   "executed", 
+                   "Scheduled command executed by ESP32");
+        }
+      } else {
+        Serial.printf("[SCHED] ⚠️  Unknown channel: %s\n", 
+                      scheduledCommands[i].channelKey);
+        queueAck(scheduledCommands[i].commandId, 
+                 "failed", 
+                 "Unsupported channel");
+      }
+
+      // Remove from storage
+      removeScheduledCommand(i);
+    }
+  }
+}
+
+int countActiveScheduledCommands() {
+  int count = 0;
+  for (size_t i = 0; i < MAX_SCHEDULED_COMMANDS; i++) {
+    if (scheduledCommands[i].active) count++;
+  }
+  return count;
 }
 
 // =============================================================================
@@ -216,149 +585,203 @@ bool manualOverrideValid(uint32_t nowEpoch) {
 }
 
 // =============================================================================
-//  Time sync from master
+//  Clock sync from serverTime
 // =============================================================================
-bool syncTimeFromMaster() {
-  if (WiFi.status() != WL_CONNECTED) return false;
+void syncClockFromServerTime(JsonDocument& resp) {
+  if (resp["serverTime"].isNull()) return;
 
-  IPAddress masterIP = MDNS.queryHost(MASTER_HOSTNAME, 2000);
-  if (masterIP == IPAddress(0, 0, 0, 0)) {
-    Serial.println("[TIME] Master not found via mDNS.");
-    return false;
-  }
+  String serverTime = resp["serverTime"].as<String>();
+  uint32_t epoch = 0;
 
-  WiFiClient client;
-  HTTPClient http;
-
-  String url = String("http://") + masterIP.toString() + MASTER_TIME_PATH;
-  if (!http.begin(client, url)) {
-    Serial.println("[TIME] HTTP begin failed.");
-    return false;
-  }
-
-  http.setTimeout(5000);
-  int code = http.GET();
-  if (code != 200) {
-    Serial.printf("[TIME] Failed to fetch master time. HTTP %d\n", code);
-    http.end();
-    return false;
-  }
-
-  String payload = http.getString();
-  http.end();
-
-  uint32_t epoch = payload.toInt();
-  if (epoch < 1000000000UL) {
-    Serial.println("[TIME] Invalid epoch received from master.");
-    return false;
+  if (!parseServerTimeToEpoch(serverTime, epoch)) {
+    Serial.println("[TIME] Invalid serverTime received.");
+    Serial.println(serverTime);
+    return;
   }
 
   lastKnownEpoch = epoch;
   lastEpochSyncMs = millis();
   timeSynced = true;
 
-  Serial.printf("[TIME] Synced from master: %lu\n", (unsigned long)epoch);
-  return true;
-}
-
-void maintainTimeSync() {
-  uint32_t nowMs = millis();
-  if (!timeSynced || (nowMs - lastTimeSyncAttemptMs) >= TIME_SYNC_INTERVAL_MS) {
-    lastTimeSyncAttemptMs = nowMs;
-    syncTimeFromMaster();
-  }
+  Serial.printf("[TIME] Synced from serverTime (UTC+1): %lu\n", (unsigned long)epoch);
 }
 
 // =============================================================================
-//  Soil sensor reading
+//  Serial monitor calibration control
 // =============================================================================
-int readSoilADC(uint8_t pin) {
-  long total = 0;
-  for (int i = 0; i < ADC_SAMPLES; i++) {
-    total += analogRead(pin);
-    delay(ADC_SAMPLE_DELAY_MS);
+void processSerialCommand(const String& input) {
+  String cmd = input;
+  cmd.trim();
+  if (cmd.length() == 0) return;
+
+  String lower = cmd;
+  lower.toLowerCase();
+
+  SoilReading live = readSensor();
+
+  if (lower == "help") {
+    printCalibration();
+    return;
   }
-  return (int)(total / ADC_SAMPLES);
+
+  if (lower == "show") {
+    Serial.println();
+    Serial.println("=== Current Status ===");
+    Serial.printf("Raw ADC  : %d\n", live.adc);
+    Serial.printf("Moisture : %.1f%%\n", live.percent);
+    Serial.printf("Valve    : %s\n", valveState ? "OPEN" : "CLOSED");
+    Serial.printf("Time src : %s\n", timeSynced ? "serverTime" : "boot millis");
+    Serial.printf("Epoch    : %lu\n", (unsigned long)currentEpoch());
+    printCalibration();
+    return;
+  }
+
+  if (lower == "dry") {
+    if (live.adc > 0) {
+      soilAdcDry = live.adc;
+      normalizeCalibration();
+      lockUserCalibration();
+      Serial.printf("[CAL] Saved current reading %d as DRY.\n", soilAdcDry);
+      printCalibration();
+    } else {
+      Serial.println("[CAL] Could not read sensor.");
+    }
+    return;
+  }
+
+  if (lower == "wet") {
+    if (live.adc > 0) {
+      soilAdcWet = live.adc;
+      normalizeCalibration();
+      lockUserCalibration();
+      Serial.printf("[CAL] Saved current reading %d as WET.\n", soilAdcWet);
+      printCalibration();
+    } else {
+      Serial.println("[CAL] Could not read sensor.");
+    }
+    return;
+  }
+
+  if (lower.startsWith("set dry ")) {
+    int value = cmd.substring(8).toInt();
+    if (value > 0) {
+      soilAdcDry = value;
+      normalizeCalibration();
+      lockUserCalibration();
+      Serial.printf("[CAL] Dry value set to %d.\n", soilAdcDry);
+      printCalibration();
+    } else {
+      Serial.println("[CAL] Invalid dry value.");
+    }
+    return;
+  }
+
+  if (lower.startsWith("set wet ")) {
+    int value = cmd.substring(8).toInt();
+    if (value > 0) {
+      soilAdcWet = value;
+      normalizeCalibration();
+      lockUserCalibration();
+      Serial.printf("[CAL] Wet value set to %d.\n", soilAdcWet);
+      printCalibration();
+    } else {
+      Serial.println("[CAL] Invalid wet value.");
+    }
+    return;
+  }
+
+  if (lower == "reset") {
+    resetCalibration();
+    return;
+  }
+
+  if (lower == "open") {
+    setValve(true);
+    Serial.println("[MANUAL] Valve opened from Serial.");
+    return;
+  }
+
+  if (lower == "close") {
+    setValve(false);
+    Serial.println("[MANUAL] Valve closed from Serial.");
+    return;
+  }
+
+  Serial.println("[SERIAL] Unknown command. Type 'help'.");
 }
 
-float adcToPercent(int adc) {
-  if (adc <= 0) return -1.0f;  // sensor disconnected / fault
+void handleSerialInput() {
+  while (Serial.available() > 0) {
+    char c = (char)Serial.read();
 
-  float pct = 100.0f * (float)(SOIL_ADC_DRY - adc) /
-                        (float)(SOIL_ADC_DRY - SOIL_ADC_WET);
-  return clampf(pct, 0.0f, 100.0f);
-}
+    if (c == '\r') continue;
 
-SoilReading readSensor(uint8_t pin) {
-  SoilReading r;
-  r.adc     = readSoilADC(pin);
-  r.percent = adcToPercent(r.adc);
-  r.fault   = (r.percent < 0.0f);
-  return r;
+    if (c == '\n') {
+      if (serialLine.length() > 0) {
+        processSerialCommand(serialLine);
+        serialLine = "";
+      }
+    } else {
+      if (serialLine.length() < 120) {
+        serialLine += c;
+      }
+    }
+  }
 }
 
 // =============================================================================
 //  Auto irrigation logic
 // =============================================================================
-void applyIrrigationControl(const SoilReading& s1, const SoilReading& s2) {
+void applyIrrigationControl(const SoilReading& s) {
   uint32_t nowEpoch = currentEpoch();
 
-  // Fail-safe: sensor fault
-  if (s1.fault || s2.fault) {
+  if (s.fault) {
     Serial.println("[AUTO] Sensor fault – closing valve (fail-safe).");
     setValve(false);
     cancelManualOverride();
     return;
   }
 
-  float avg = (s1.percent + s2.percent) / 2.0f;
-
-  // Flood guard: max open duration
   if (valveState) {
     uint32_t openDuration = nowEpoch - valveOpenedAtEpoch;
     if (openDuration >= MAX_VALVE_OPEN_MS / 1000UL) {
-      Serial.println("[AUTO] Max open time reached – closing valve (flood guard).");
+      Serial.println("[AUTO] Max open time reached – closing valve.");
       setValve(false);
       cancelManualOverride();
       return;
     }
   }
 
-  // Hard stop: soil saturated
-  if (avg >= VALVE_CLOSE_THRESHOLD_PCT) {
+  if (s.percent >= VALVE_CLOSE_THRESHOLD_PCT) {
     setValve(false);
     cancelManualOverride();
     return;
   }
 
-  // Hard start: soil very dry
-  if (avg <= VALVE_OPEN_THRESHOLD_PCT) {
+  if (s.percent <= VALVE_OPEN_THRESHOLD_PCT) {
     setValve(true);
     return;
   }
 
-  // Middle zone: manual override wins
   if (manualOverrideValid(nowEpoch)) {
     setValve(manualOverrideDesiredState);
     return;
   }
-
-  // Middle zone, no override: keep current state
 }
 
 // =============================================================================
-//  Command processing
+//  Command processing from dashboard
 // =============================================================================
-bool processPendingCommands(JsonArray commands, float avgMoisturePct) {
+bool processPendingCommands(JsonArray commands, float moisturePct) {
   if (commands.isNull()) return false;
 
   bool queued = false;
   uint32_t nowEpoch = currentEpoch();
 
   for (JsonObject cmd : commands) {
-    const char* commandId   = cmd["commandId"]   | "";
-    const char* channelKey  = cmd["channelKey"]   | "";
-    const char* commandType = cmd["commandType"]  | "";
+    const char* commandId   = cmd["commandId"]  | "";
+    const char* channelKey  = cmd["channelKey"] | "";
+    const char* commandType = cmd["commandType"] | "";
 
     if (commandId[0] == '\0') continue;
     if (ackQueuedFor(commandId)) continue;
@@ -380,13 +803,11 @@ bool processPendingCommands(JsonArray commands, float avgMoisturePct) {
 
     bool desired = cmd["desiredBooleanState"].as<bool>();
 
-    // Block manual open if soil is already saturated
-    if (desired && avgMoisturePct >= VALVE_CLOSE_THRESHOLD_PCT) {
+    if (desired && moisturePct >= VALVE_CLOSE_THRESHOLD_PCT) {
       queued |= queueAck(commandId, "failed", "Valve blocked: soil already saturated");
       continue;
     }
 
-    // Default override is 60 seconds
     uint32_t overrideMs = MANUAL_OVERRIDE_MS;
     if (!cmd["overrideSeconds"].isNull()) {
       int s = cmd["overrideSeconds"].as<int>();
@@ -402,7 +823,7 @@ bool processPendingCommands(JsonArray commands, float avgMoisturePct) {
 
     queued |= queueAck(commandId, "acknowledged", "Manual override active");
 
-    Serial.printf("[CMD] %s → manual override %s for %lu s\n",
+    Serial.printf("[CMD] %s -> manual override %s for %lu s\n",
                   commandId, desired ? "OPEN" : "CLOSE",
                   (unsigned long)(overrideMs / 1000UL));
   }
@@ -421,10 +842,12 @@ bool connectWiFi() {
 
   Serial.print("[WiFi] Connecting");
   uint32_t start = millis();
+
   while (WiFi.status() != WL_CONNECTED &&
          (millis() - start) < WIFI_CONNECT_TIMEOUT_MS) {
     delay(500);
     Serial.print(".");
+    yield();
   }
   Serial.println();
 
@@ -446,65 +869,39 @@ void syncDevice() {
     return;
   }
 
-  // Keep local clock aligned with master
-  maintainTimeSync();
+  SoilReading s = readSensor();
 
-  // Read sensors
-  SoilReading s1 = readSensor(SOIL_SENSOR1_PIN);
-  SoilReading s2 = readSensor(SOIL_SENSOR2_PIN);
+  Serial.printf("[SENSOR] ADC: %d  |  Moisture: %.1f%%  |  Dry:%d Wet:%d\n",
+                s.adc, s.percent, soilAdcDry, soilAdcWet);
 
-  float avgPct = (!s1.fault && !s2.fault)
-                   ? (s1.percent + s2.percent) / 2.0f
-                   : -1.0f;
+  applyIrrigationControl(s);
 
-  Serial.printf("[SENSOR] S1: %d adc / %.1f%%  |  S2: %d adc / %.1f%%  |  Avg: %.1f%%\n",
-                s1.adc, s1.percent, s2.adc, s2.percent, avgPct);
-
-  // Local safety control before reporting
-  applyIrrigationControl(s1, s2);
-
-  // Build request payload
   DynamicJsonDocument req(2048);
   req["firmwareVersion"] = FIRMWARE_VERSION;
 
   JsonObject clock = req.createNestedObject("clock");
-  clock["timeSyncedFromMaster"] = timeSynced;
+  clock["timeSyncedFromServer"] = timeSynced;
   clock["epoch"] = currentEpoch();
 
   JsonArray readings = req.createNestedArray("readings");
 
-  // Sensor 1 → soil_zone_1
-  JsonObject r1 = readings.createNestedObject();
-  r1["channelKey"] = SOIL_ZONE1_KEY;
-  if (!s1.fault) {
-    r1["numericValue"] = (int)s1.percent;
-    r1["rawValue"]     = s1.adc;
-    r1["rawUnit"]      = "adc";
-    r1["status"]       = "ok";
+  JsonObject soil = readings.createNestedObject();
+  soil["channelKey"] = SOIL_CHANNEL_KEY;
+  if (!s.fault) {
+    soil["numericValue"] = round1(s.percent);
+    soil["rawValue"]     = s.adc;
+    soil["rawUnit"]      = "adc";
+    soil["status"]       = "ok";
   } else {
-    r1["status"]       = "fault";
+    soil["status"] = "fault";
   }
 
-  // Sensor 2 → soil_moisture
-  JsonObject r2 = readings.createNestedObject();
-  r2["channelKey"] = SOIL_MOISTURE_KEY;
-  if (!s2.fault) {
-    r2["numericValue"] = (int)s2.percent;
-    r2["rawValue"]     = s2.adc;
-    r2["rawUnit"]      = "adc";
-    r2["status"]       = "ok";
-  } else {
-    r2["status"]       = "fault";
-  }
+  JsonObject valve = readings.createNestedObject();
+  valve["channelKey"]   = VALVE_CHANNEL_KEY;
+  valve["booleanState"] = valveState;
+  valve["numericValue"] = valveState ? 1 : 0;
+  valve["status"]       = "ok";
 
-  // Valve
-  JsonObject rv = readings.createNestedObject();
-  rv["channelKey"]   = VALVE_CHANNEL_KEY;
-  rv["booleanState"] = valveState;
-  rv["numericValue"] = valveState ? 1 : 0;
-  rv["status"]       = "ok";
-
-  // Acknowledgements
   JsonArray acks = req.createNestedArray("acknowledgements");
   for (size_t i = 0; i < ACK_QUEUE_SIZE; i++) {
     if (!ackQueue[i].used) continue;
@@ -523,7 +920,6 @@ void syncDevice() {
   String body;
   serializeJson(req, body);
 
-  // HTTP POST
   WiFiClientSecure secureClient;
   secureClient.setInsecure();
 
@@ -535,7 +931,7 @@ void syncDevice() {
   }
 
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("x-device-id",  DEVICE_ID);
+  http.addHeader("x-device-id", DEVICE_ID);
   http.addHeader("x-device-key", DEVICE_KEY);
   http.setConnectTimeout(HTTP_CONNECT_TIMEOUT_MS);
   http.setTimeout(HTTP_TIMEOUT_MS);
@@ -556,10 +952,8 @@ void syncDevice() {
     return;
   }
 
-  // Server accepted → clear sent acks
   clearAckQueue();
 
-  // Parse response
   DynamicJsonDocument resp(8192);
   DeserializationError parseErr = deserializeJson(resp, response);
   if (parseErr) {
@@ -568,11 +962,33 @@ void syncDevice() {
     return;
   }
 
-  JsonArray pendingCmds = resp["pendingCommands"].as<JsonArray>();
-  processPendingCommands(pendingCmds, avgPct < 0 ? 0 : avgPct);
+  // Use cloud serverTime as the authoritative clock for scheduling
+  syncClockFromServerTime(resp);
 
-  // Re-apply control after command handling
-  applyIrrigationControl(s1, s2);
+  // Apply calibration from server only if user has not locked it manually
+  JsonArray channelConfig = resp["channelConfig"].as<JsonArray>();
+  applyServerCalibration(channelConfig);
+
+  JsonArray pendingCmds = resp["pendingCommands"].as<JsonArray>();
+  processPendingCommands(pendingCmds, s.fault ? 0 : s.percent);
+
+  // Process scheduled commands from server
+  JsonArray scheduledCommandsArray = resp["scheduledCommands"].as<JsonArray>();
+  if (!scheduledCommandsArray.isNull()) {
+    for (JsonObject cmd : scheduledCommandsArray) {
+      storeScheduledCommand(cmd);
+    }
+    int activeCount = countActiveScheduledCommands();
+    if (activeCount > 0) {
+      Serial.printf("[SCHED] %d scheduled command(s) in storage\n", activeCount);
+    }
+  }
+
+  // Check and execute any due scheduled commands
+  uint32_t nowEpoch = currentEpoch();
+  checkAndExecuteScheduledCommands(nowEpoch, s.fault ? 0 : s.percent);
+
+  applyIrrigationControl(s);
 
   nextSyncDelayMs = SYNC_INTERVAL_MS;
   if (hasPendingAcks()) nextSyncDelayMs = 1000UL;
@@ -588,42 +1004,49 @@ void setup() {
   Serial.begin(115200);
   delay(500);
 
-  Serial.println("\n=== GanSys Soil Irrigation Slave + Master Time Sync ===");
+  Serial.println("\n=== GanSys Soil Irrigation Slave + Server Time Sync ===");
 
-  // Configure analog input pins
-  analogSetAttenuation(ADC_11db);
-  pinMode(SOIL_SENSOR1_PIN, INPUT);
-  pinMode(SOIL_SENSOR2_PIN, INPUT);
+  analogReadResolution(12);
+  analogSetPinAttenuation(SOIL_SENSOR_PIN, ADC_11db);
+  pinMode(SOIL_SENSOR_PIN, INPUT);
 
   pinMode(VALVE_RELAY_PIN, OUTPUT);
 
   WiFi.persistent(false);
   WiFi.setAutoReconnect(true);
 
+  prefs.begin("soilcal", false);
+  loadCalibration();
+
   clearAckQueue();
-  setValve(false);   // Start with valve closed
+  clearScheduledCommands();
+  setValve(false);
 
-  // Start mDNS stack for host lookup on the local network
-  // Slave resolves rtc-master.local using the master hostname
-  MDNS.begin("soil-slave");
-
+  printCalibration();
   connectWiFi();
-  maintainTimeSync();
-
   syncDevice();
   lastSyncMs = millis();
 }
 
 void loop() {
+  handleSerialInput();
+
   uint32_t now = millis();
 
-  if ((uint32_t)(now - lastTimeSyncAttemptMs) >= TIME_SYNC_INTERVAL_MS) {
-    lastTimeSyncAttemptMs = now;
-    syncTimeFromMaster();
+  // Check scheduled commands every second
+  static uint32_t lastScheduleCheck = 0;
+  if ((uint32_t)(now - lastScheduleCheck) >= 1000UL) {
+    lastScheduleCheck = now;
+    if (timeSynced) {
+      SoilReading s = readSensor();
+      checkAndExecuteScheduledCommands(currentEpoch(), s.fault ? 0 : s.percent);
+    }
   }
 
   if ((uint32_t)(now - lastSyncMs) >= nextSyncDelayMs) {
     lastSyncMs = now;
     syncDevice();
   }
+
+  delay(5);
 }
