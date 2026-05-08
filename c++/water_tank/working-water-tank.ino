@@ -190,161 +190,6 @@ bool queueAck(const char* commandId, const char* status, const char* message) {
 }
 
 // =============================================================================
-//  Scheduled Commands Management
-// =============================================================================
-void clearScheduledCommands() {
-  for (size_t i = 0; i < MAX_SCHEDULED_COMMANDS; i++) {
-    scheduledCommands[i].active = false;
-    scheduledCommands[i].commandId[0] = '\0';
-    scheduledCommands[i].channelKey[0] = '\0';
-    scheduledCommands[i].commandType[0] = '\0';
-    scheduledCommands[i].desiredBooleanState = false;
-    scheduledCommands[i].desiredNumericValue = 0.0f;
-    scheduledCommands[i].scheduledEpoch = 0;
-    scheduledCommands[i].note[0] = '\0';
-  }
-}
-
-uint32_t parseIsoToEpoch(const char* isoTime) {
-  // Parse ISO 8601 format: "2024-05-04T15:00:00.000Z"
-  if (isoTime == nullptr || strlen(isoTime) < 19) return 0;
-
-  int year, month, day, hour, minute, second;
-  if (sscanf(isoTime, "%d-%d-%dT%d:%d:%d", 
-             &year, &month, &day, &hour, &minute, &second) != 6) {
-    return 0;
-  }
-
-  // Create DateTime object and convert to epoch
-  DateTime dt(year, month, day, hour, minute, second);
-  return dt.unixtime();
-}
-
-bool isScheduledCommandStored(const char* commandId) {
-  if (commandId == nullptr || commandId[0] == '\0') return false;
-
-  for (size_t i = 0; i < MAX_SCHEDULED_COMMANDS; i++) {
-    if (scheduledCommands[i].active && 
-        strcmp(scheduledCommands[i].commandId, commandId) == 0) {
-      return true;
-    }
-  }
-  return false;
-}
-
-bool storeScheduledCommand(JsonObject cmd) {
-  const char* commandId = cmd["commandId"] | "";
-  const char* channelKey = cmd["channelKey"] | "";
-  const char* commandType = cmd["commandType"] | "";
-  const char* scheduledFor = cmd["scheduledFor"] | "";
-  const char* note = cmd["note"] | "";
-
-  if (commandId[0] == '\0' || channelKey[0] == '\0' || scheduledFor[0] == '\0') {
-    Serial.println("[SCHED] Invalid scheduled command data");
-    return false;
-  }
-
-  // Check if already stored
-  if (isScheduledCommandStored(commandId)) {
-    return true;  // Already have it
-  }
-
-  // Parse scheduled time
-  uint32_t scheduledEpoch = parseIsoToEpoch(scheduledFor);
-  if (scheduledEpoch == 0) {
-    Serial.printf("[SCHED] Failed to parse time: %s\n", scheduledFor);
-    return false;
-  }
-
-  // Find empty slot
-  for (size_t i = 0; i < MAX_SCHEDULED_COMMANDS; i++) {
-    if (!scheduledCommands[i].active) {
-      scheduledCommands[i].active = true;
-      copyText(scheduledCommands[i].commandId, sizeof(scheduledCommands[i].commandId), commandId);
-      copyText(scheduledCommands[i].channelKey, sizeof(scheduledCommands[i].channelKey), channelKey);
-      copyText(scheduledCommands[i].commandType, sizeof(scheduledCommands[i].commandType), commandType);
-      copyText(scheduledCommands[i].note, sizeof(scheduledCommands[i].note), note);
-      
-      scheduledCommands[i].desiredBooleanState = cmd["desiredBooleanState"] | false;
-      scheduledCommands[i].desiredNumericValue = cmd["desiredNumericValue"] | 0.0f;
-      scheduledCommands[i].scheduledEpoch = scheduledEpoch;
-
-      Serial.printf("[SCHED] Stored command %s for epoch %lu (%s)\n", 
-                    commandId, scheduledEpoch, scheduledFor);
-      Serial.printf("[SCHED] Channel: %s, Action: %s\n", 
-                    channelKey, 
-                    scheduledCommands[i].desiredBooleanState ? "ON" : "OFF");
-      return true;
-    }
-  }
-
-  Serial.println("[SCHED] Storage full; cannot store more scheduled commands");
-  return false;
-}
-
-void removeScheduledCommand(size_t index) {
-  if (index >= MAX_SCHEDULED_COMMANDS) return;
-  scheduledCommands[index].active = false;
-}
-
-void checkAndExecuteScheduledCommands(uint32_t nowEpoch, float tankPercent) {
-  for (size_t i = 0; i < MAX_SCHEDULED_COMMANDS; i++) {
-    if (!scheduledCommands[i].active) continue;
-
-    // Check if scheduled time has arrived or passed
-    if (nowEpoch >= scheduledCommands[i].scheduledEpoch) {
-      Serial.printf("[SCHED] ⏰ Executing scheduled command: %s\n", 
-                    scheduledCommands[i].commandId);
-      Serial.printf("[SCHED] Scheduled for: %lu, Current: %lu\n", 
-                    scheduledCommands[i].scheduledEpoch, nowEpoch);
-
-      // Check if it's for the pump channel
-      if (strcmp(scheduledCommands[i].channelKey, PUMP_CHANNEL_KEY) == 0) {
-        bool desiredState = scheduledCommands[i].desiredBooleanState;
-
-        // Safety check: don't turn on pump if tank is full
-        if (desiredState && tankPercent >= TANK_PUMP_OFF_PERCENT) {
-          Serial.printf("[SCHED] ⚠️  Blocked: Tank is full (%.1f%%)\n", tankPercent);
-          queueAck(scheduledCommands[i].commandId, 
-                   "failed", 
-                   "Pump blocked: tank already full");
-        } else {
-          // Execute the command
-          manualOverrideActive = true;
-          manualOverrideDesiredState = desiredState;
-          manualOverrideExpiresAtEpoch = nowEpoch + (MANUAL_OVERRIDE_MS / 1000UL);
-
-          Serial.printf("[SCHED] ✓ Pump set to %s for %lu seconds\n", 
-                        desiredState ? "ON" : "OFF",
-                        (unsigned long)(MANUAL_OVERRIDE_MS / 1000UL));
-
-          queueAck(scheduledCommands[i].commandId, 
-                   "executed", 
-                   "Scheduled command executed by ESP32");
-        }
-      } else {
-        Serial.printf("[SCHED] ⚠️  Unknown channel: %s\n", 
-                      scheduledCommands[i].channelKey);
-        queueAck(scheduledCommands[i].commandId, 
-                 "failed", 
-                 "Unsupported channel");
-      }
-
-      // Remove from storage
-      removeScheduledCommand(i);
-    }
-  }
-}
-
-int countActiveScheduledCommands() {
-  int count = 0;
-  for (size_t i = 0; i < MAX_SCHEDULED_COMMANDS; i++) {
-    if (scheduledCommands[i].active) count++;
-  }
-  return count;
-}
-
-// =============================================================================
 //  Valve / pump
 // =============================================================================
 void setPump(bool on) {
@@ -774,18 +619,6 @@ void syncDevice() {
   JsonArray pendingCommands = responseDoc["pendingCommands"].as<JsonArray>();
   processPendingCommands(pendingCommands, cachedTankPercent, nowEpoch);
 
-  // Process scheduled commands from server
-  JsonArray scheduledCommandsArray = responseDoc["scheduledCommands"].as<JsonArray>();
-  if (!scheduledCommandsArray.isNull()) {
-    for (JsonObject cmd : scheduledCommandsArray) {
-      storeScheduledCommand(cmd);
-    }
-    int activeCount = countActiveScheduledCommands();
-    if (activeCount > 0) {
-      Serial.printf("[SCHED] %d scheduled command(s) in storage\n", activeCount);
-    }
-  }
-
   applyPumpControl(cachedTankPercent, nowEpoch);
 
   nextSyncDelayMs = SYNC_INTERVAL_MS;
@@ -814,7 +647,6 @@ void setup() {
   WiFi.setAutoReconnect(true);
 
   clearAckQueue();
-  clearScheduledCommands();
   setPump(false);
 
   initRTC();
@@ -847,13 +679,7 @@ void loop() {
 
   if ((uint32_t)(nowMs - lastControlMs) >= LOCAL_CONTROL_INTERVAL_MS) {
     lastControlMs = nowMs;
-    uint32_t nowEpoch = currentEpoch();
-    
-    // Check for scheduled commands that need execution
-    checkAndExecuteScheduledCommands(nowEpoch, cachedTankPercent);
-    
-    // Apply pump control logic
-    applyPumpControl(cachedTankPercent, nowEpoch);
+    applyPumpControl(cachedTankPercent, currentEpoch());
   }
 
   if ((uint32_t)(nowMs - lastSyncMs) >= nextSyncDelayMs) {
