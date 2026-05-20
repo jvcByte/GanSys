@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Cpu, AlertTriangle, Droplets, Sprout, Plus, Wifi, WifiOff, Trash2 } from "lucide-react";
+import { Cpu, AlertTriangle, Droplets, Sprout, Plus, Wifi, WifiOff, Trash2, Video, Settings as SettingsIcon } from "lucide-react";
 
 import styles from "@/components/dashboard/dashboard.module.css";
 import { ScopedErrorBoundary } from "@/components/system/scoped-error-boundary";
@@ -29,6 +29,9 @@ function alertClass(severity: string) {
 export function DashboardHome({ initialSnapshot }: Props) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [message, setMessage] = useState("");
+  const [liveStreamUrl, setLiveStreamUrl] = useState("");
+  const [showStreamConfig, setShowStreamConfig] = useState(false);
+  const [streamUrlInput, setStreamUrlInput] = useState("");
   const { lastMessage, connected } = useWs();
   const safeSnapshot = {
     user: snapshot?.user ?? initialSnapshot?.user,
@@ -36,6 +39,37 @@ export function DashboardHome({ initialSnapshot }: Props) {
     controllers: snapshot?.controllers ?? initialSnapshot?.controllers ?? [],
     alerts: snapshot?.alerts ?? initialSnapshot?.alerts ?? [],
   };
+
+  // Load live stream URL from localStorage
+  useEffect(() => {
+    const savedUrl = localStorage.getItem("liveStreamUrl");
+    if (savedUrl) {
+      setLiveStreamUrl(savedUrl);
+      setStreamUrlInput(savedUrl);
+    }
+  }, []);
+
+  function saveLiveStreamUrl() {
+    const trimmedUrl = streamUrlInput.trim();
+    if (trimmedUrl) {
+      localStorage.setItem("liveStreamUrl", trimmedUrl);
+      setLiveStreamUrl(trimmedUrl);
+      setMessage("Live stream URL saved!");
+      setShowStreamConfig(false);
+    } else {
+      localStorage.removeItem("liveStreamUrl");
+      setLiveStreamUrl("");
+      setMessage("Live stream URL removed.");
+      setShowStreamConfig(false);
+    }
+  }
+
+  function removeLiveStream() {
+    localStorage.removeItem("liveStreamUrl");
+    setLiveStreamUrl("");
+    setStreamUrlInput("");
+    setMessage("Live stream removed.");
+  }
 
   // React to real-time controller_update messages from WebSocket
   useEffect(() => {
@@ -117,6 +151,132 @@ export function DashboardHome({ initialSnapshot }: Props) {
       </header>
 
       {message && <div className={styles.card} style={{ marginBottom: "1rem" }}>{message}</div>}
+
+      {/* Live Stream Configuration */}
+      {showStreamConfig && (
+        <div className={styles.card} style={{ marginBottom: "1rem" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" }}>
+            <div>
+              <strong>Configure Live Stream</strong>
+              <p className={styles.muted} style={{ margin: "0.3rem 0 0", fontSize: "0.85rem" }}>
+                Paste your YouTube embed URL below
+              </p>
+            </div>
+            <button
+              className={styles.ghostButton}
+              type="button"
+              onClick={() => setShowStreamConfig(false)}
+              style={{ padding: "0.4rem 0.6rem" }}
+            >
+              Cancel
+            </button>
+          </div>
+          <div className={styles.formGrid}>
+            <label className={styles.formRow}>
+              <span>YouTube Embed URL</span>
+              <input
+                type="url"
+                value={streamUrlInput}
+                onChange={(e) => setStreamUrlInput(e.target.value)}
+                placeholder="https://www.youtube.com/embed/VIDEO_ID"
+                style={{ width: "100%" }}
+              />
+              <p className={styles.small} style={{ margin: "0.3rem 0 0", color: "var(--muted)" }}>
+                Format: https://www.youtube.com/embed/VIDEO_ID (not /watch?v=)
+              </p>
+            </label>
+            <div style={{ display: "flex", gap: "0.5rem" }}>
+              <button
+                className={styles.button}
+                type="button"
+                onClick={saveLiveStreamUrl}
+              >
+                Save Live Stream URL
+              </button>
+              {liveStreamUrl && (
+                <button
+                  className={styles.dangerButton}
+                  type="button"
+                  onClick={removeLiveStream}
+                >
+                  Remove Stream
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Live Stream Section */}
+      {liveStreamUrl && (
+        <ScopedErrorBoundary
+          badge="Live stream"
+          title="Live stream unavailable"
+          message="The video feed could not load, but the rest of the dashboard is still available."
+        >
+          <section className={styles.section} style={{ marginBottom: "1.5rem" }}>
+            <div className={styles.sectionHead}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <Video size={16} style={{ color: "var(--muted)" }} />
+                <div>
+                  <p className={styles.eyebrow}>Surveillance</p>
+                  <h2 style={{ margin: 0, fontSize: "1.1rem" }}>Live Weed Detection Feed</h2>
+                </div>
+              </div>
+              <button
+                className={styles.ghostButton}
+                type="button"
+                onClick={() => setShowStreamConfig(true)}
+                style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}
+              >
+                <SettingsIcon size={14} /> Configure
+              </button>
+            </div>
+            <div style={{ 
+              position: "relative", 
+              paddingBottom: "56.25%", 
+              height: 0, 
+              overflow: "hidden",
+              borderRadius: "12px",
+              background: "var(--surface)"
+            }}>
+              <iframe
+                src={liveStreamUrl}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  height: "100%",
+                  border: "none",
+                  borderRadius: "12px"
+                }}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+                title="Live Farm Surveillance Feed"
+              />
+            </div>
+          </section>
+        </ScopedErrorBoundary>
+      )}
+
+      {/* Add Live Stream Button (when no stream configured) */}
+      {!liveStreamUrl && !showStreamConfig && (
+        <div className={styles.card} style={{ marginBottom: "1rem", textAlign: "center" }}>
+          <Video size={24} style={{ color: "var(--muted)", margin: "0 auto 0.5rem" }} />
+          <p className={styles.muted} style={{ marginBottom: "0.8rem" }}>
+            Add a YouTube live stream for weed detection and farm surveillance
+          </p>
+          <button
+            className={styles.button}
+            type="button"
+            onClick={() => setShowStreamConfig(true)}
+            style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}
+          >
+            <Plus size={15} /> Add Live Stream
+          </button>
+        </div>
+      )}
 
       <ScopedErrorBoundary
         badge="Overview metrics"

@@ -1,6 +1,6 @@
 // =============================================================================
 //  Soil Irrigation Controller – ESP32 (Slave Time Client)
-//  1× Capacitive Soil Sensor → 1× Solenoid Valve
+//  1× Capacitive Soil Sensor → 1× Solenoid Valve + 1× Spray Pump
 //  Syncs to GAN Systems cloud API every 3 seconds
 //  Uses cloud serverTime for scheduling
 //  Calibration can be changed from Serial Monitor and saved in ESP32 memory
@@ -25,20 +25,22 @@ const char* DEVICE_ID        = "ESP32-SOIL-IRRIGATION";
 const char* DEVICE_KEY       = "t-La6ONbo9xahSp1sczrZkQjw27yZwW2";
 const char* FIRMWARE_VERSION = "1.0.0";
 
-// 1 hour offset for local time (UTC+1)
+// Nigeria / WAT = UTC+1
 constexpr int32_t SERVER_TIME_OFFSET_SEC = 3600;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Channel keys
 // ─────────────────────────────────────────────────────────────────────────────
-const char* SOIL_CHANNEL_KEY  = "soil_zone_1";
-const char* VALVE_CHANNEL_KEY = "irrigation_valve_1";
+const char* SOIL_CHANNEL_KEY   = "soil_zone_1";
+const char* VALVE_CHANNEL_KEY  = "irrigation_valve_1";
+const char* PUMP_CHANNEL_KEY   = "spray_pump";
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Hardware pins
 // ─────────────────────────────────────────────────────────────────────────────
-constexpr uint8_t SOIL_SENSOR_PIN = 34;
-constexpr uint8_t VALVE_RELAY_PIN  = 26;
+constexpr uint8_t SOIL_SENSOR_PIN      = 34;
+constexpr uint8_t VALVE_RELAY_PIN      = 26;
+constexpr uint8_t SPRAY_PUMP_RELAY_PIN = 27;
 
 // Flip to true if your relay board uses active-LOW logic
 constexpr bool RELAY_ACTIVE_LOW = false;
@@ -49,33 +51,35 @@ constexpr bool RELAY_ACTIVE_LOW = false;
 constexpr int DEFAULT_SOIL_ADC_DRY = 2700;
 constexpr int DEFAULT_SOIL_ADC_WET = 1200;
 
-constexpr int ADC_SAMPLES         = 20;
-constexpr int ADC_SAMPLE_DELAY_MS = 10;
+constexpr int ADC_SAMPLES          = 20;
+constexpr int ADC_SAMPLE_DELAY_MS   = 10;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Auto-irrigation thresholds
 // ─────────────────────────────────────────────────────────────────────────────
 constexpr float VALVE_OPEN_THRESHOLD_PCT  = 35.0f;
-constexpr float VALVE_CLOSE_THRESHOLD_PCT = 70.0f;
+constexpr float VALVE_CLOSE_THRESHOLD_PCT  = 70.0f;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Timing
 // ─────────────────────────────────────────────────────────────────────────────
-constexpr uint32_t SYNC_INTERVAL_MS        = 3000UL;
-constexpr uint32_t MANUAL_OVERRIDE_MS      = 60000UL;
-constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 15000UL;
-constexpr uint32_t HTTP_CONNECT_TIMEOUT_MS = 8000UL;
-constexpr uint32_t HTTP_TIMEOUT_MS         = 10000UL;
-constexpr uint32_t FAILURE_RETRY_MS        = 3000UL;
-constexpr uint32_t MAX_VALVE_OPEN_MS       = 300000UL;
+constexpr uint32_t SYNC_INTERVAL_MS           = 3000UL;
+constexpr uint32_t SENSOR_READ_INTERVAL_MS    = 1000UL;
+constexpr uint32_t SCHEDULE_CHECK_INTERVAL_MS  = 1000UL;
+constexpr uint32_t MANUAL_OVERRIDE_MS          = 60000UL;
+constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS    = 15000UL;
+constexpr uint32_t HTTP_CONNECT_TIMEOUT_MS    = 8000UL;
+constexpr uint32_t HTTP_TIMEOUT_MS            = 10000UL;
+constexpr uint32_t FAILURE_RETRY_MS           = 3000UL;
+constexpr uint32_t MAX_VALVE_OPEN_MS          = 300000UL;
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Acknowledgement queue
 // ─────────────────────────────────────────────────────────────────────────────
 constexpr size_t ACK_QUEUE_SIZE  = 8;
 constexpr size_t COMMAND_ID_LEN   = 48;
-constexpr size_t ACK_STATUS_LEN    = 16;
-constexpr size_t ACK_MESSAGE_LEN   = 96;
+constexpr size_t ACK_STATUS_LEN   = 16;
+constexpr size_t ACK_MESSAGE_LEN  = 96;
 
 struct AckItem {
   bool used;
@@ -87,7 +91,7 @@ struct AckItem {
 AckItem ackQueue[ACK_QUEUE_SIZE];
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Scheduled Commands Storage
+//  Scheduled commands storage
 // ─────────────────────────────────────────────────────────────────────────────
 constexpr size_t MAX_SCHEDULED_COMMANDS = 10;
 constexpr size_t CHANNEL_KEY_LEN = 32;
@@ -114,6 +118,8 @@ Preferences prefs;
 bool valveState = false;
 uint32_t valveOpenedAtEpoch = 0;
 
+bool pumpState = false;
+
 bool manualOverrideActive = false;
 bool manualOverrideDesiredState = false;
 uint32_t manualOverrideExpiresAtEpoch = 0;
@@ -121,9 +127,12 @@ uint32_t manualOverrideExpiresAtEpoch = 0;
 bool timeSynced = false;
 uint32_t lastKnownEpoch = 0;
 uint32_t lastEpochSyncMs = 0;
+String lastServerTimeRaw = "";
 
 uint32_t lastSyncMs = 0;
 uint32_t nextSyncDelayMs = SYNC_INTERVAL_MS;
+uint32_t lastSensorReadMs = 0;
+uint32_t lastScheduleCheckMs = 0;
 
 int soilAdcDry = DEFAULT_SOIL_ADC_DRY;
 int soilAdcWet = DEFAULT_SOIL_ADC_WET;
@@ -135,6 +144,7 @@ struct SoilReading {
   bool fault;
 };
 
+SoilReading cachedSensor = { -1, -1.0f, true };
 String serialLine;
 
 // =============================================================================
@@ -154,14 +164,6 @@ void copyText(char* dest, size_t destSize, const char* src) {
   dest[destSize - 1] = '\0';
 }
 
-uint32_t currentEpoch() {
-  if (timeSynced) {
-    uint32_t elapsedSec = (millis() - lastEpochSyncMs) / 1000UL;
-    return lastKnownEpoch + elapsedSec;
-  }
-  return millis() / 1000UL;
-}
-
 int64_t daysFromCivil(int y, unsigned m, unsigned d) {
   y -= (m <= 2);
   const int era = (y >= 0 ? y : y - 399) / 400;
@@ -171,7 +173,39 @@ int64_t daysFromCivil(int y, unsigned m, unsigned d) {
   return (int64_t)era * 146097 + (int64_t)doe - 719468;
 }
 
-bool parseServerTimeToEpoch(const String& isoTime, uint32_t& epochOut) {
+void civilFromDays(int64_t z, int& y, unsigned& m, unsigned& d) {
+  z += 719468;
+  const int era = (z >= 0 ? z : z - 146096) / 146097;
+  const unsigned doe = (unsigned)(z - (int64_t)era * 146097);
+  const unsigned yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+  y = (int)yoe + era * 400;
+  const unsigned doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+  const unsigned mp = (5 * doy + 2) / 153;
+  d = doy - (153 * mp + 2) / 5 + 1;
+  m = mp + (mp < 10 ? 3 : -9);
+  y += (m <= 2);
+}
+
+String epochToIsoLike(uint32_t epoch) {
+  uint32_t days = epoch / 86400UL;
+  uint32_t rem = epoch % 86400UL;
+
+  int year;
+  unsigned month, day;
+  civilFromDays((int64_t)days, year, month, day);
+
+  uint32_t hh = rem / 3600UL;
+  rem %= 3600UL;
+  uint32_t mm = rem / 60UL;
+  uint32_t ss = rem % 60UL;
+
+  char buf[32];
+  snprintf(buf, sizeof(buf), "%04d-%02u-%02u %02u:%02u:%02u",
+           year, month, day, hh, mm, ss);
+  return String(buf);
+}
+
+bool parseIsoToEpochWithOffset(const String& isoTime, uint32_t& epochOut) {
   String s = isoTime;
   s.trim();
   if (s.length() < 19) return false;
@@ -199,6 +233,14 @@ bool parseServerTimeToEpoch(const String& isoTime, uint32_t& epochOut) {
 
   epochOut = (uint32_t)epoch;
   return true;
+}
+
+uint32_t currentEpoch() {
+  if (timeSynced) {
+    uint32_t elapsedSec = (millis() - lastEpochSyncMs) / 1000UL;
+    return lastKnownEpoch + elapsedSec;
+  }
+  return (millis() / 1000UL) + SERVER_TIME_OFFSET_SEC;
 }
 
 // =============================================================================
@@ -265,16 +307,6 @@ void printCalibration() {
   Serial.println();
 }
 
-int readSoilADC() {
-  long total = 0;
-  for (int i = 0; i < ADC_SAMPLES; i++) {
-    total += analogRead(SOIL_SENSOR_PIN);
-    delay(ADC_SAMPLE_DELAY_MS);
-    yield();
-  }
-  return (int)(total / ADC_SAMPLES);
-}
-
 bool normalizeCalibration() {
   if (soilAdcDry <= 0 || soilAdcWet <= 0 || soilAdcDry == soilAdcWet) {
     return false;
@@ -287,6 +319,16 @@ bool normalizeCalibration() {
   }
 
   return true;
+}
+
+int readSoilADC() {
+  long total = 0;
+  for (int i = 0; i < ADC_SAMPLES; i++) {
+    total += analogRead(SOIL_SENSOR_PIN);
+    delay(ADC_SAMPLE_DELAY_MS);
+    yield();
+  }
+  return (int)(total / ADC_SAMPLES);
 }
 
 float adcToPercent(int adc) {
@@ -305,6 +347,11 @@ SoilReading readSensor() {
   r.percent = adcToPercent(r.adc);
   r.fault = (r.percent < 0.0f);
   return r;
+}
+
+void refreshSensorCache() {
+  cachedSensor = readSensor();
+  lastSensorReadMs = millis();
 }
 
 // =============================================================================
@@ -405,16 +452,14 @@ void clearScheduledCommands() {
 }
 
 uint32_t parseScheduledTimeToEpoch(const char* isoTime) {
-  // Parse ISO 8601 format: "2024-05-04T15:00:00.000Z"
   if (isoTime == nullptr || strlen(isoTime) < 19) return 0;
 
-  int year, month, day, hour, minute, second;
-  if (sscanf(isoTime, "%d-%d-%dT%d:%d:%d", 
+  int year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0;
+  if (sscanf(isoTime, "%d-%d-%dT%d:%d:%d",
              &year, &month, &day, &hour, &minute, &second) != 6) {
     return 0;
   }
 
-  // Convert to epoch using the same method as parseServerTimeToEpoch
   int64_t days = daysFromCivil(year, (unsigned)month, (unsigned)day);
   int64_t epoch =
       days * 86400LL +
@@ -422,11 +467,9 @@ uint32_t parseScheduledTimeToEpoch(const char* isoTime) {
       (int64_t)minute * 60LL +
       (int64_t)second;
 
-  // Apply same offset as server time
   epoch += SERVER_TIME_OFFSET_SEC;
 
   if (epoch <= 0 || epoch > 0xFFFFFFFFLL) return 0;
-
   return (uint32_t)epoch;
 }
 
@@ -434,7 +477,7 @@ bool isScheduledCommandStored(const char* commandId) {
   if (commandId == nullptr || commandId[0] == '\0') return false;
 
   for (size_t i = 0; i < MAX_SCHEDULED_COMMANDS; i++) {
-    if (scheduledCommands[i].active && 
+    if (scheduledCommands[i].active &&
         strcmp(scheduledCommands[i].commandId, commandId) == 0) {
       return true;
     }
@@ -442,31 +485,38 @@ bool isScheduledCommandStored(const char* commandId) {
   return false;
 }
 
-bool storeScheduledCommand(JsonObject cmd) {
+bool commandHasScheduledTime(JsonObject cmd) {
+  const char* s1 = cmd["scheduledFor"] | "";
+  const char* s2 = cmd["executeAt"] | "";
+  const char* s3 = cmd["runAt"] | "";
+  return (s1[0] != '\0') || (s2[0] != '\0') || (s3[0] != '\0');
+}
+
+const char* getScheduledTimeField(JsonObject cmd) {
+  const char* s1 = cmd["scheduledFor"] | "";
+  if (s1[0] != '\0') return s1;
+  const char* s2 = cmd["executeAt"] | "";
+  if (s2[0] != '\0') return s2;
+  const char* s3 = cmd["runAt"] | "";
+  if (s3[0] != '\0') return s3;
+  return "";
+}
+
+bool storeScheduledCommand(JsonObject cmd, uint32_t scheduledEpoch) {
   const char* commandId = cmd["commandId"] | "";
   const char* channelKey = cmd["channelKey"] | "";
   const char* commandType = cmd["commandType"] | "";
-  const char* scheduledFor = cmd["scheduledFor"] | "";
   const char* note = cmd["note"] | "";
 
-  if (commandId[0] == '\0' || channelKey[0] == '\0' || scheduledFor[0] == '\0') {
-    Serial.println("[SCHED] Invalid scheduled command data");
+  if (commandId[0] == '\0' || channelKey[0] == '\0' || commandType[0] == '\0') {
+    Serial.println("[SCHED] Invalid scheduled command data.");
     return false;
   }
 
-  // Check if already stored
   if (isScheduledCommandStored(commandId)) {
-    return true;  // Already have it
+    return true;
   }
 
-  // Parse scheduled time
-  uint32_t scheduledEpoch = parseScheduledTimeToEpoch(scheduledFor);
-  if (scheduledEpoch == 0) {
-    Serial.printf("[SCHED] Failed to parse time: %s\n", scheduledFor);
-    return false;
-  }
-
-  // Find empty slot
   for (size_t i = 0; i < MAX_SCHEDULED_COMMANDS; i++) {
     if (!scheduledCommands[i].active) {
       scheduledCommands[i].active = true;
@@ -474,76 +524,24 @@ bool storeScheduledCommand(JsonObject cmd) {
       copyText(scheduledCommands[i].channelKey, sizeof(scheduledCommands[i].channelKey), channelKey);
       copyText(scheduledCommands[i].commandType, sizeof(scheduledCommands[i].commandType), commandType);
       copyText(scheduledCommands[i].note, sizeof(scheduledCommands[i].note), note);
-      
+
       scheduledCommands[i].desiredBooleanState = cmd["desiredBooleanState"] | false;
       scheduledCommands[i].desiredNumericValue = cmd["desiredNumericValue"] | 0.0f;
       scheduledCommands[i].scheduledEpoch = scheduledEpoch;
 
-      Serial.printf("[SCHED] Stored command %s for epoch %lu (%s)\n", 
-                    commandId, scheduledEpoch, scheduledFor);
-      Serial.printf("[SCHED] Channel: %s, Action: %s\n", 
-                    channelKey, 
-                    scheduledCommands[i].desiredBooleanState ? "OPEN" : "CLOSE");
+      Serial.printf("[SCHED] Stored command %s for epoch %lu\n",
+                    commandId, (unsigned long)scheduledEpoch);
       return true;
     }
   }
 
-  Serial.println("[SCHED] Storage full; cannot store more scheduled commands");
+  Serial.println("[SCHED] Storage full; cannot store more scheduled commands.");
   return false;
 }
 
 void removeScheduledCommand(size_t index) {
   if (index >= MAX_SCHEDULED_COMMANDS) return;
   scheduledCommands[index].active = false;
-}
-
-void checkAndExecuteScheduledCommands(uint32_t nowEpoch, float moisturePct) {
-  for (size_t i = 0; i < MAX_SCHEDULED_COMMANDS; i++) {
-    if (!scheduledCommands[i].active) continue;
-
-    // Check if scheduled time has arrived or passed
-    if (nowEpoch >= scheduledCommands[i].scheduledEpoch) {
-      Serial.printf("[SCHED] ⏰ Executing scheduled command: %s\n", 
-                    scheduledCommands[i].commandId);
-      Serial.printf("[SCHED] Scheduled for: %lu, Current: %lu\n", 
-                    scheduledCommands[i].scheduledEpoch, nowEpoch);
-
-      // Check if it's for the valve channel
-      if (strcmp(scheduledCommands[i].channelKey, VALVE_CHANNEL_KEY) == 0) {
-        bool desiredState = scheduledCommands[i].desiredBooleanState;
-
-        // Safety check: don't open valve if soil is already saturated
-        if (desiredState && moisturePct >= VALVE_CLOSE_THRESHOLD_PCT) {
-          Serial.printf("[SCHED] ⚠️  Blocked: Soil already saturated (%.1f%%)\n", moisturePct);
-          queueAck(scheduledCommands[i].commandId, 
-                   "failed", 
-                   "Valve blocked: soil already saturated");
-        } else {
-          // Execute the command
-          manualOverrideActive = true;
-          manualOverrideDesiredState = desiredState;
-          manualOverrideExpiresAtEpoch = nowEpoch + (MANUAL_OVERRIDE_MS / 1000UL);
-
-          Serial.printf("[SCHED] ✓ Valve set to %s for %lu seconds\n", 
-                        desiredState ? "OPEN" : "CLOSE",
-                        (unsigned long)(MANUAL_OVERRIDE_MS / 1000UL));
-
-          queueAck(scheduledCommands[i].commandId, 
-                   "executed", 
-                   "Scheduled command executed by ESP32");
-        }
-      } else {
-        Serial.printf("[SCHED] ⚠️  Unknown channel: %s\n", 
-                      scheduledCommands[i].channelKey);
-        queueAck(scheduledCommands[i].commandId, 
-                 "failed", 
-                 "Unsupported channel");
-      }
-
-      // Remove from storage
-      removeScheduledCommand(i);
-    }
-  }
 }
 
 int countActiveScheduledCommands() {
@@ -555,17 +553,18 @@ int countActiveScheduledCommands() {
 }
 
 // =============================================================================
-//  Valve control
+//  Actuators
 // =============================================================================
 void setValve(bool open) {
   digitalWrite(VALVE_RELAY_PIN, RELAY_ACTIVE_LOW ? !open : open);
-
-  if (open && !valveState) {
-    valveOpenedAtEpoch = currentEpoch();
-  }
-
   valveState = open;
   Serial.printf("[VALVE] %s\n", open ? "OPEN" : "CLOSED");
+}
+
+void setPump(bool on) {
+  digitalWrite(SPRAY_PUMP_RELAY_PIN, RELAY_ACTIVE_LOW ? !on : on);
+  pumpState = on;
+  Serial.printf("[PUMP] %s\n", on ? "ON" : "OFF");
 }
 
 void cancelManualOverride() {
@@ -584,18 +583,66 @@ bool manualOverrideValid(uint32_t nowEpoch) {
   return true;
 }
 
+bool applyCommandToActuator(const char* channelKey,
+                            bool desiredState,
+                            const char* commandId,
+                            float moisturePct,
+                            uint32_t nowEpoch,
+                            uint32_t overrideMs,
+                            bool fromScheduled) {
+  if (strcmp(channelKey, VALVE_CHANNEL_KEY) == 0) {
+    if (desiredState && moisturePct >= VALVE_CLOSE_THRESHOLD_PCT) {
+      queueAck(commandId, "failed", "Valve blocked: soil already saturated");
+      return false;
+    }
+
+    manualOverrideActive = true;
+    manualOverrideDesiredState = desiredState;
+    manualOverrideExpiresAtEpoch = nowEpoch + (overrideMs / 1000UL);
+
+    if (fromScheduled) {
+      queueAck(commandId, "executed", "Scheduled valve command executed");
+      Serial.printf("[SCHED] Valve %s\n", desiredState ? "OPEN" : "CLOSED");
+    } else {
+      queueAck(commandId, "acknowledged", "Valve command accepted");
+      Serial.printf("[CMD] Valve %s for %lu s\n",
+                    desiredState ? "OPEN" : "CLOSED",
+                    (unsigned long)(overrideMs / 1000UL));
+    }
+
+    return true;
+  }
+
+  if (strcmp(channelKey, PUMP_CHANNEL_KEY) == 0) {
+    setPump(desiredState);
+
+    if (fromScheduled) {
+      queueAck(commandId, "executed", "Scheduled pump command executed");
+      Serial.printf("[SCHED] Pump %s\n", desiredState ? "ON" : "OFF");
+    } else {
+      queueAck(commandId, "acknowledged", "Pump command accepted");
+      Serial.printf("[CMD] Pump %s\n", desiredState ? "ON" : "OFF");
+    }
+
+    return true;
+  }
+
+  queueAck(commandId, "failed", "Unsupported channel");
+  return false;
+}
+
 // =============================================================================
 //  Clock sync from serverTime
 // =============================================================================
 void syncClockFromServerTime(JsonDocument& resp) {
   if (resp["serverTime"].isNull()) return;
 
-  String serverTime = resp["serverTime"].as<String>();
-  uint32_t epoch = 0;
+  lastServerTimeRaw = resp["serverTime"].as<String>();
 
-  if (!parseServerTimeToEpoch(serverTime, epoch)) {
+  uint32_t epoch = 0;
+  if (!parseIsoToEpochWithOffset(lastServerTimeRaw, epoch)) {
     Serial.println("[TIME] Invalid serverTime received.");
-    Serial.println(serverTime);
+    Serial.println(lastServerTimeRaw);
     return;
   }
 
@@ -603,7 +650,13 @@ void syncClockFromServerTime(JsonDocument& resp) {
   lastEpochSyncMs = millis();
   timeSynced = true;
 
-  Serial.printf("[TIME] Synced from serverTime (UTC+1): %lu\n", (unsigned long)epoch);
+  Serial.println("========== TIME SYNC ==========");
+  Serial.print("Raw UTC serverTime : ");
+  Serial.println(lastServerTimeRaw);
+  Serial.print("Corrected local    : ");
+  Serial.println(epochToIsoLike(epoch));
+  Serial.printf("Offset applied     : +%ld sec\n", (long)SERVER_TIME_OFFSET_SEC);
+  Serial.println("================================");
 }
 
 // =============================================================================
@@ -630,8 +683,13 @@ void processSerialCommand(const String& input) {
     Serial.printf("Raw ADC  : %d\n", live.adc);
     Serial.printf("Moisture : %.1f%%\n", live.percent);
     Serial.printf("Valve    : %s\n", valveState ? "OPEN" : "CLOSED");
+    Serial.printf("Pump     : %s\n", pumpState ? "ON" : "OFF");
     Serial.printf("Time src : %s\n", timeSynced ? "serverTime" : "boot millis");
     Serial.printf("Epoch    : %lu\n", (unsigned long)currentEpoch());
+    if (lastServerTimeRaw.length() > 0) {
+      Serial.print("Last UTC : ");
+      Serial.println(lastServerTimeRaw);
+    }
     printCalibration();
     return;
   }
@@ -695,15 +753,23 @@ void processSerialCommand(const String& input) {
     return;
   }
 
-  if (lower == "open") {
+  if (lower == "valve on") {
     setValve(true);
-    Serial.println("[MANUAL] Valve opened from Serial.");
     return;
   }
 
-  if (lower == "close") {
+  if (lower == "valve off") {
     setValve(false);
-    Serial.println("[MANUAL] Valve closed from Serial.");
+    return;
+  }
+
+  if (lower == "pump on") {
+    setPump(true);
+    return;
+  }
+
+  if (lower == "pump off") {
+    setPump(false);
     return;
   }
 
@@ -713,7 +779,6 @@ void processSerialCommand(const String& input) {
 void handleSerialInput() {
   while (Serial.available() > 0) {
     char c = (char)Serial.read();
-
     if (c == '\r') continue;
 
     if (c == '\n') {
@@ -779,14 +844,15 @@ bool processPendingCommands(JsonArray commands, float moisturePct) {
   uint32_t nowEpoch = currentEpoch();
 
   for (JsonObject cmd : commands) {
-    const char* commandId   = cmd["commandId"]  | "";
-    const char* channelKey  = cmd["channelKey"] | "";
+    const char* commandId  = cmd["commandId"] | "";
+    const char* channelKey = cmd["channelKey"] | "";
     const char* commandType = cmd["commandType"] | "";
 
     if (commandId[0] == '\0') continue;
     if (ackQueuedFor(commandId)) continue;
 
-    if (strcmp(channelKey, VALVE_CHANNEL_KEY) != 0) {
+    if (strcmp(channelKey, VALVE_CHANNEL_KEY) != 0 &&
+        strcmp(channelKey, PUMP_CHANNEL_KEY) != 0) {
       queued |= queueAck(commandId, "failed", "Unsupported channel");
       continue;
     }
@@ -803,11 +869,6 @@ bool processPendingCommands(JsonArray commands, float moisturePct) {
 
     bool desired = cmd["desiredBooleanState"].as<bool>();
 
-    if (desired && moisturePct >= VALVE_CLOSE_THRESHOLD_PCT) {
-      queued |= queueAck(commandId, "failed", "Valve blocked: soil already saturated");
-      continue;
-    }
-
     uint32_t overrideMs = MANUAL_OVERRIDE_MS;
     if (!cmd["overrideSeconds"].isNull()) {
       int s = cmd["overrideSeconds"].as<int>();
@@ -817,15 +878,34 @@ bool processPendingCommands(JsonArray commands, float moisturePct) {
       if (m > 0) overrideMs = (uint32_t)m * 60000UL;
     }
 
-    manualOverrideActive = true;
-    manualOverrideDesiredState = desired;
-    manualOverrideExpiresAtEpoch = nowEpoch + (overrideMs / 1000UL);
+    uint32_t scheduledEpoch = 0;
+    bool hasSchedule = false;
 
-    queued |= queueAck(commandId, "acknowledged", "Manual override active");
+    if (commandHasScheduledTime(cmd)) {
+      const char* scheduledFor = getScheduledTimeField(cmd);
+      scheduledEpoch = parseScheduledTimeToEpoch(scheduledFor);
+      hasSchedule = (scheduledEpoch > 0);
 
-    Serial.printf("[CMD] %s -> manual override %s for %lu s\n",
-                  commandId, desired ? "OPEN" : "CLOSE",
-                  (unsigned long)(overrideMs / 1000UL));
+      if (!hasSchedule) {
+        queued |= queueAck(commandId, "failed", "Invalid scheduled time");
+        continue;
+      }
+
+      if (scheduledEpoch > nowEpoch) {
+        if (storeScheduledCommand(cmd, scheduledEpoch)) {
+          Serial.printf("[SCHED] Stored future command %s for %lu\n",
+                        commandId, (unsigned long)scheduledEpoch);
+        }
+        continue;
+      }
+    }
+
+    if (!applyCommandToActuator(channelKey, desired, commandId, moisturePct, nowEpoch, overrideMs, false)) {
+      queued = true;
+      continue;
+    }
+
+    queued = true;
   }
 
   return queued;
@@ -869,14 +949,14 @@ void syncDevice() {
     return;
   }
 
-  SoilReading s = readSensor();
+  refreshSensorCache();
 
   Serial.printf("[SENSOR] ADC: %d  |  Moisture: %.1f%%  |  Dry:%d Wet:%d\n",
-                s.adc, s.percent, soilAdcDry, soilAdcWet);
+                cachedSensor.adc, cachedSensor.percent, soilAdcDry, soilAdcWet);
 
-  applyIrrigationControl(s);
+  applyIrrigationControl(cachedSensor);
 
-  DynamicJsonDocument req(2048);
+  DynamicJsonDocument req(3072);
   req["firmwareVersion"] = FIRMWARE_VERSION;
 
   JsonObject clock = req.createNestedObject("clock");
@@ -887,9 +967,9 @@ void syncDevice() {
 
   JsonObject soil = readings.createNestedObject();
   soil["channelKey"] = SOIL_CHANNEL_KEY;
-  if (!s.fault) {
-    soil["numericValue"] = round1(s.percent);
-    soil["rawValue"]     = s.adc;
+  if (!cachedSensor.fault) {
+    soil["numericValue"] = round1(cachedSensor.percent);
+    soil["rawValue"]     = cachedSensor.adc;
     soil["rawUnit"]      = "adc";
     soil["status"]       = "ok";
   } else {
@@ -901,6 +981,12 @@ void syncDevice() {
   valve["booleanState"] = valveState;
   valve["numericValue"] = valveState ? 1 : 0;
   valve["status"]       = "ok";
+
+  JsonObject pump = readings.createNestedObject();
+  pump["channelKey"]   = PUMP_CHANNEL_KEY;
+  pump["booleanState"] = pumpState;
+  pump["numericValue"] = pumpState ? 1 : 0;
+  pump["status"]       = "ok";
 
   JsonArray acks = req.createNestedArray("acknowledgements");
   for (size_t i = 0; i < ACK_QUEUE_SIZE; i++) {
@@ -962,39 +1048,96 @@ void syncDevice() {
     return;
   }
 
-  // Use cloud serverTime as the authoritative clock for scheduling
   syncClockFromServerTime(resp);
 
-  // Apply calibration from server only if user has not locked it manually
   JsonArray channelConfig = resp["channelConfig"].as<JsonArray>();
   applyServerCalibration(channelConfig);
 
   JsonArray pendingCmds = resp["pendingCommands"].as<JsonArray>();
-  processPendingCommands(pendingCmds, s.fault ? 0 : s.percent);
+  processPendingCommands(pendingCmds, cachedSensor.fault ? 0 : cachedSensor.percent);
 
-  // Process scheduled commands from server
-  JsonArray scheduledCommandsArray = resp["scheduledCommands"].as<JsonArray>();
-  if (!scheduledCommandsArray.isNull()) {
-    for (JsonObject cmd : scheduledCommandsArray) {
-      storeScheduledCommand(cmd);
-    }
-    int activeCount = countActiveScheduledCommands();
-    if (activeCount > 0) {
-      Serial.printf("[SCHED] %d scheduled command(s) in storage\n", activeCount);
+  JsonArray scheduledArray = resp["scheduledCommands"].as<JsonArray>();
+  if (!scheduledArray.isNull()) {
+    for (JsonObject cmd : scheduledArray) {
+      const char* s = getScheduledTimeField(cmd);
+      uint32_t scheduledEpoch = parseScheduledTimeToEpoch(s);
+      if (scheduledEpoch > 0) {
+        storeScheduledCommand(cmd, scheduledEpoch);
+      }
     }
   }
 
-  // Check and execute any due scheduled commands
-  uint32_t nowEpoch = currentEpoch();
-  checkAndExecuteScheduledCommands(nowEpoch, s.fault ? 0 : s.percent);
+  JsonArray pestArray = resp["pestControlSchedule"].as<JsonArray>();
+  if (!pestArray.isNull()) {
+    for (JsonObject cmd : pestArray) {
+      const char* s = getScheduledTimeField(cmd);
+      uint32_t scheduledEpoch = parseScheduledTimeToEpoch(s);
+      if (scheduledEpoch > 0) {
+        storeScheduledCommand(cmd, scheduledEpoch);
+      }
+    }
+  }
 
-  applyIrrigationControl(s);
+  checkAndExecuteScheduledCommands(currentEpoch(), cachedSensor.fault ? 0 : cachedSensor.percent);
+  applyIrrigationControl(cachedSensor);
 
   nextSyncDelayMs = SYNC_INTERVAL_MS;
   if (hasPendingAcks()) nextSyncDelayMs = 1000UL;
 
   Serial.printf("[SYNC] Next sync in %lu ms\n", (unsigned long)nextSyncDelayMs);
   Serial.println("────────────");
+}
+
+// =============================================================================
+//  Scheduled command execution
+// =============================================================================
+void checkAndExecuteScheduledCommands(uint32_t nowEpoch, float moisturePct) {
+  for (size_t i = 0; i < MAX_SCHEDULED_COMMANDS; i++) {
+    if (!scheduledCommands[i].active) continue;
+
+    if (nowEpoch < scheduledCommands[i].scheduledEpoch) continue;
+
+    Serial.printf("[SCHED] Executing scheduled command: %s\n",
+                  scheduledCommands[i].commandId);
+
+    bool desiredState = scheduledCommands[i].desiredBooleanState;
+    const char* channelKey = scheduledCommands[i].channelKey;
+
+    if (strcmp(channelKey, VALVE_CHANNEL_KEY) == 0) {
+      if (desiredState && moisturePct >= VALVE_CLOSE_THRESHOLD_PCT) {
+        Serial.printf("[SCHED] Blocked: Soil already saturated (%.1f%%)\n", moisturePct);
+        queueAck(scheduledCommands[i].commandId,
+                 "failed",
+                 "Valve blocked: soil already saturated");
+      } else {
+        manualOverrideActive = true;
+        manualOverrideDesiredState = desiredState;
+        manualOverrideExpiresAtEpoch = nowEpoch + (MANUAL_OVERRIDE_MS / 1000UL);
+
+        Serial.printf("[SCHED] Valve set to %s for %lu seconds\n",
+                      desiredState ? "OPEN" : "CLOSE",
+                      (unsigned long)(MANUAL_OVERRIDE_MS / 1000UL));
+
+        queueAck(scheduledCommands[i].commandId,
+                 "executed",
+                 "Scheduled valve command executed by ESP32");
+      }
+    } else if (strcmp(channelKey, PUMP_CHANNEL_KEY) == 0) {
+      setPump(desiredState);
+      queueAck(scheduledCommands[i].commandId,
+               "executed",
+               "Scheduled pump command executed by ESP32");
+
+      Serial.printf("[SCHED] Pump %s\n", desiredState ? "ON" : "OFF");
+    } else {
+      Serial.printf("[SCHED] Unsupported channel: %s\n", scheduledCommands[i].channelKey);
+      queueAck(scheduledCommands[i].commandId,
+               "failed",
+               "Unsupported channel");
+    }
+
+    removeScheduledCommand(i);
+  }
 }
 
 // =============================================================================
@@ -1011,18 +1154,22 @@ void setup() {
   pinMode(SOIL_SENSOR_PIN, INPUT);
 
   pinMode(VALVE_RELAY_PIN, OUTPUT);
+  pinMode(SPRAY_PUMP_RELAY_PIN, OUTPUT);
 
   WiFi.persistent(false);
   WiFi.setAutoReconnect(true);
 
-  prefs.begin("soilcal", false);
   loadCalibration();
 
   clearAckQueue();
   clearScheduledCommands();
-  setValve(false);
 
+  setValve(false);
+  setPump(false);
+
+  refreshSensorCache();
   printCalibration();
+
   connectWiFi();
   syncDevice();
   lastSyncMs = millis();
@@ -1033,13 +1180,16 @@ void loop() {
 
   uint32_t now = millis();
 
-  // Check scheduled commands every second
-  static uint32_t lastScheduleCheck = 0;
-  if ((uint32_t)(now - lastScheduleCheck) >= 1000UL) {
-    lastScheduleCheck = now;
+  if ((uint32_t)(now - lastSensorReadMs) >= SENSOR_READ_INTERVAL_MS) {
+    refreshSensorCache();
+    applyIrrigationControl(cachedSensor);
+  }
+
+  if ((uint32_t)(now - lastScheduleCheckMs) >= SCHEDULE_CHECK_INTERVAL_MS) {
+    lastScheduleCheckMs = now;
     if (timeSynced) {
-      SoilReading s = readSensor();
-      checkAndExecuteScheduledCommands(currentEpoch(), s.fault ? 0 : s.percent);
+      checkAndExecuteScheduledCommands(currentEpoch(),
+                                       cachedSensor.fault ? 0.0f : cachedSensor.percent);
     }
   }
 
