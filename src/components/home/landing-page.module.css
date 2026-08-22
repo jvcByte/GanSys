@@ -13,10 +13,10 @@
   align-items: center;
   justify-content: space-between;
   padding: 0 clamp(1.5rem, 5vw, 4rem);
-  height: 64px;
-  background: rgba(255, 255, 255, 0.8);
+  height: 72px;
+  background: rgba(15, 20, 25, 0.8);
   backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .navBrand {
@@ -33,7 +33,7 @@
 }
 
 .navName {
-  font-size: 1.1rem;
+  font-size: 1.15rem;
   font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--text);
@@ -56,18 +56,22 @@
 .navLogin:hover { color: var(--text); }
 
 .navCta {
-  padding: 0.5rem 1.1rem;
+  padding: 0.6rem 1.2rem;
   border-radius: var(--radius);
-  background: var(--primary-dim);
-  color: var(--primary);
-  font-size: 0.9rem;
-  font-weight: 600;
-  border: 1px solid rgba(16, 185, 129, 0.25);
-  transition: all 0.2s;
-}
-.navCta:hover { 
   background: var(--primary);
-  color: white;
+  color: #0f1419;
+  font-size: 0.9rem;
+  font-weight: 700;
+  border: none;
+  transition: all 0.3s ease;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(74, 222, 128, 0.2);
+}
+
+.navCta:hover { 
+  background: var(--primary-strong);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(74, 222, 128, 0.3);
 }
 
 /* ── Hero ────────────────────────────────────────────────────────────────── */
@@ -145,35 +149,40 @@
 .ctaPrimary {
   display: inline-flex;
   align-items: center;
-  padding: 0.85rem 1.8rem;
+  padding: 0.95rem 2rem;
   border-radius: var(--radius);
   background: var(--primary);
-  color: white;
+  color: #0f1419;
   font-weight: 700;
-  font-size: 0.95rem;
-  transition: all 0.2s;
+  font-size: 1rem;
+  transition: all 0.3s ease;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(74, 222, 128, 0.2);
 }
 .ctaPrimary:hover { 
   background: var(--primary-strong);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow);
+  transform: translateY(-3px);
+  box-shadow: 0 12px 32px rgba(74, 222, 128, 0.35);
 }
 
 .ctaGhost {
   display: inline-flex;
   align-items: center;
-  padding: 0.85rem 1.8rem;
+  padding: 0.95rem 2rem;
   border-radius: var(--radius);
   background: transparent;
   color: var(--text);
   font-weight: 600;
-  font-size: 0.95rem;
-  border: 1px solid var(--line-strong);
-  transition: all 0.2s;
+  font-size: 1rem;
+  border: 1.5px solid var(--line-strong);
+  transition: all 0.3s ease;
+  cursor: pointer;
 }
 .ctaGhost:hover { 
-  background: var(--surface);
-  border-color: var(--line);
+  background: var(--surface-hover);
+  border-color: var(--text);
+  transform: translateY(-2px);
 }
 
 /* Metrics strip */
@@ -266,12 +275,34 @@
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  padding: 1.5rem;
-  transition: all 0.2s ease;
+  padding: 2rem 1.5rem;
+  transition: all 0.4s ease;
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
 }
+
+.featureCard::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: radial-gradient(circle at 50% 0%, rgba(74, 222, 128, 0.1), transparent 70%);
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  pointer-events: none;
+}
+
 .featureCard:hover {
   border-color: var(--primary);
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-6px);
+}
+
+.featureCard:hover::before {
+  opacity: 1;
 }
 
 .featureIcon {
