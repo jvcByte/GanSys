@@ -4,6 +4,12 @@
 
 Scheduled commands are executed server-side and sent to your device via MQTT at the scheduled time. From the device's perspective, scheduled commands look exactly like manual commands.
 
+> **Scheduling authority (audit Finding 5):** the server scheduler is the single
+> execution authority. The device sync response **no longer includes a
+> `scheduledCommands` array** for local execution — the server delivers due
+> scheduled commands as regular `pendingCommands`/MQTT commands. Firmware must
+> not execute schedules locally.
+
 ## How It Works
 
 1. **Server schedules command** - User schedules via web dashboard

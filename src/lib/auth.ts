@@ -101,6 +101,12 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
   const token = await getSessionToken();
   if (!token) return null;
 
+  return getCurrentUserFromToken(token);
+}
+
+export async function getCurrentUserFromToken(token: string): Promise<SessionUser | null> {
+  if (!token) return null;
+
   const tokenHash = hashToken(token);
   const now = new Date();
 

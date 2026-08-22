@@ -6,6 +6,7 @@ import { channels, controllers } from "@/lib/db/schema";
 import { getTemplate } from "@/lib/templates";
 import type { ChannelView } from "@/lib/types";
 import { safeJsonParse, toJson } from "@/lib/utils";
+import { getControllerOwnedByUser } from "./controller.service";
 
 type ChannelInput = {
   channelKey?: string; name?: string; template?: string; kind?: string;
@@ -56,6 +57,10 @@ export async function createChannel(userId: string, controllerId: string, input:
   const template = getTemplate(input.template ?? "custom");
   const channelKey = input.channelKey?.trim();
   if (!channelKey) throw new Error("Channel key is required.");
+
+  // Enforce controller ownership inside the service boundary (not only in the route).
+  // Prevents cross-user channel creation on a controller the user does not own.
+  await getControllerOwnedByUser(userId, controllerId);
 
   const existing = await db.select().from(channels)
     .where(and(eq(channels.controllerId, controllerId), eq(channels.channelKey, channelKey)));

@@ -5,12 +5,49 @@
  * This creates scheduled commands for the next occurrence of each schedule.
  */
 
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { channels, controllers, pestControlSchedules, scheduledCommands } from "@/lib/db/schema";
 import { createId } from "@/lib/auth";
 
 function now() { return new Date(); }
+
+/**
+ * Idempotency key for auto-generated commands: one row per channel/state/date.
+ * The unique index on occurrence_key prevents concurrent duplicate inserts.
+ */
+function occurrenceKeyFor(channelId: string, desiredBooleanState: boolean, scheduledFor: Date): string {
+  const date = scheduledFor.toISOString().slice(0, 10);
+  return `${channelId}:${desiredBooleanState}:${date}`;
+}
+
+function buildAutoCommandValues(
+  controllerId: string,
+  channelId: string,
+  requestedByUserId: string,
+  desiredBooleanState: boolean,
+  note: string,
+  scheduledFor: Date
+) {
+  return {
+    id: createId("schcmd"),
+    controllerId,
+    channelId,
+    requestedByUserId,
+    commandType: "set_state",
+    desiredBooleanState,
+    desiredNumericValue: null,
+    note,
+    scheduledFor,
+    status: "pending",
+    createdAt: now(),
+    executedAt: null,
+    cancelledAt: null,
+    executedCommandId: null,
+    failureReason: null,
+    occurrenceKey: occurrenceKeyFor(channelId, desiredBooleanState, scheduledFor),
+  };
+}
 
 /**
  * Parse "HH:MM" time string and return Date for today (or tomorrow if time has passed)
@@ -79,23 +116,12 @@ async function scheduleSprayPumpAutoCommands() {
     if (schedule.sprayPumpStartTime && !hasPendingStart) {
       const scheduledFor = getNextOccurrence(schedule.sprayPumpStartTime);
       
-      await db.insert(scheduledCommands).values({
-        id: createId("schcmd"),
-        controllerId: controller.id,
-        channelId: sprayPump.id,
-        requestedByUserId: controller.userId,
-        commandType: "set_state",
-        desiredBooleanState: true,
-        desiredNumericValue: null,
-        note: `Auto-schedule: Turn on at ${schedule.sprayPumpStartTime}`,
-        scheduledFor,
-        status: "pending",
-        createdAt: now(),
-        executedAt: null,
-        cancelledAt: null,
-        executedCommandId: null,
-        failureReason: null,
-      });
+      await db.insert(scheduledCommands)
+        .values(buildAutoCommandValues(
+          controller.id, sprayPump.id, controller.userId, true,
+          `Auto-schedule: Turn on at ${schedule.sprayPumpStartTime}`, scheduledFor
+        ))
+        .onConflictDoNothing();
 
       created++;
       console.log(`[AutoSchedule] Created spray pump ON command for ${controller.name} at ${scheduledFor.toISOString()}`);
@@ -105,23 +131,12 @@ async function scheduleSprayPumpAutoCommands() {
     if (schedule.sprayPumpEndTime && !hasPendingEnd) {
       const scheduledFor = getNextOccurrence(schedule.sprayPumpEndTime);
       
-      await db.insert(scheduledCommands).values({
-        id: createId("schcmd"),
-        controllerId: controller.id,
-        channelId: sprayPump.id,
-        requestedByUserId: controller.userId,
-        commandType: "set_state",
-        desiredBooleanState: false,
-        desiredNumericValue: null,
-        note: `Auto-schedule: Turn off at ${schedule.sprayPumpEndTime}`,
-        scheduledFor,
-        status: "pending",
-        createdAt: now(),
-        executedAt: null,
-        cancelledAt: null,
-        executedCommandId: null,
-        failureReason: null,
-      });
+      await db.insert(scheduledCommands)
+        .values(buildAutoCommandValues(
+          controller.id, sprayPump.id, controller.userId, false,
+          `Auto-schedule: Turn off at ${schedule.sprayPumpEndTime}`, scheduledFor
+        ))
+        .onConflictDoNothing();
 
       created++;
       console.log(`[AutoSchedule] Created spray pump OFF command for ${controller.name} at ${scheduledFor.toISOString()}`);
@@ -182,23 +197,12 @@ async function scheduleUvZapperAutoCommands() {
     if (schedule.uvStartTime && !hasPendingStart) {
       const scheduledFor = getNextOccurrence(schedule.uvStartTime);
       
-      await db.insert(scheduledCommands).values({
-        id: createId("schcmd"),
-        controllerId: controller.id,
-        channelId: uvZapper.id,
-        requestedByUserId: controller.userId,
-        commandType: "set_state",
-        desiredBooleanState: true,
-        desiredNumericValue: null,
-        note: `Auto-schedule: Turn on at ${schedule.uvStartTime}`,
-        scheduledFor,
-        status: "pending",
-        createdAt: now(),
-        executedAt: null,
-        cancelledAt: null,
-        executedCommandId: null,
-        failureReason: null,
-      });
+      await db.insert(scheduledCommands)
+        .values(buildAutoCommandValues(
+          controller.id, uvZapper.id, controller.userId, true,
+          `Auto-schedule: Turn on at ${schedule.uvStartTime}`, scheduledFor
+        ))
+        .onConflictDoNothing();
 
       created++;
       console.log(`[AutoSchedule] Created UV zapper ON command for ${controller.name} at ${scheduledFor.toISOString()}`);
@@ -208,23 +212,12 @@ async function scheduleUvZapperAutoCommands() {
     if (schedule.uvEndTime && !hasPendingEnd) {
       const scheduledFor = getNextOccurrence(schedule.uvEndTime);
       
-      await db.insert(scheduledCommands).values({
-        id: createId("schcmd"),
-        controllerId: controller.id,
-        channelId: uvZapper.id,
-        requestedByUserId: controller.userId,
-        commandType: "set_state",
-        desiredBooleanState: false,
-        desiredNumericValue: null,
-        note: `Auto-schedule: Turn off at ${schedule.uvEndTime}`,
-        scheduledFor,
-        status: "pending",
-        createdAt: now(),
-        executedAt: null,
-        cancelledAt: null,
-        executedCommandId: null,
-        failureReason: null,
-      });
+      await db.insert(scheduledCommands)
+        .values(buildAutoCommandValues(
+          controller.id, uvZapper.id, controller.userId, false,
+          `Auto-schedule: Turn off at ${schedule.uvEndTime}`, scheduledFor
+        ))
+        .onConflictDoNothing();
 
       created++;
       console.log(`[AutoSchedule] Created UV zapper OFF command for ${controller.name} at ${scheduledFor.toISOString()}`);
@@ -232,6 +225,21 @@ async function scheduleUvZapperAutoCommands() {
   }
 
   return created;
+}
+
+/**
+ * Cancel pending auto-generated commands for a controller. Used when a pest
+ * schedule changes or is disabled so old generated commands stop firing.
+ * Manually-created commands (no "Auto-schedule:" note prefix) are preserved.
+ */
+export async function cancelPendingAutoCommands(controllerId: string) {
+  await db.update(scheduledCommands)
+    .set({ status: "cancelled", cancelledAt: now() })
+    .where(and(
+      eq(scheduledCommands.controllerId, controllerId),
+      eq(scheduledCommands.status, "pending"),
+      sql`${scheduledCommands.note} LIKE 'Auto-schedule:%'`
+    ));
 }
 
 /**

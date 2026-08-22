@@ -97,13 +97,21 @@ export async function applyReadings(
 ) {
   const allChannels = await db.select().from(channels).where(eq(channels.controllerId, controller.id));
   const channelByKey = new Map(allChannels.map((c) => [c.channelKey, c]));
+  const timestamp = now();
+
+  // Batch all inserts and updates instead of one query per reading.
+  const sampleValues: Array<typeof telemetrySamples.$inferInsert> = [];
+  const channelPatches = new Map<string, {
+    numericValue: number | null;
+    booleanState: boolean | null;
+    status: string;
+  }>();
 
   for (const reading of readings) {
     const channel = channelByKey.get(reading.channelKey);
     if (!channel) continue;
 
-    const timestamp = now();
-    await db.insert(telemetrySamples).values({
+    sampleValues.push({
       id: createId("sample"),
       channelId: channel.id,
       recordedAt: timestamp,
@@ -115,18 +123,29 @@ export async function applyReadings(
       payloadJson: toJson(reading.payload ?? {}),
     });
 
+    channelPatches.set(channel.id, {
+      numericValue: reading.numericValue ?? channel.latestNumericValue,
+      booleanState: reading.booleanState ?? channel.latestBooleanState,
+      status: reading.status ?? "ok",
+    });
+  }
+
+  if (sampleValues.length) {
+    await db.insert(telemetrySamples).values(sampleValues);
+  }
+
+  for (const [channelId, patch] of channelPatches) {
     await db.update(channels).set({
-      latestNumericValue: reading.numericValue ?? channel.latestNumericValue,
-      latestBooleanState: reading.booleanState ?? channel.latestBooleanState,
-      latestStatus: reading.status ?? "ok",
+      latestNumericValue: patch.numericValue,
+      latestBooleanState: patch.booleanState,
+      latestStatus: patch.status,
       lastSampleAt: timestamp,
       updatedAt: timestamp,
-    }).where(eq(channels.id, channel.id));
+    }).where(eq(channels.id, channelId));
 
-    const updated = await db.select().from(channels).where(eq(channels.id, channel.id));
-    if (updated[0]) {
-      await evaluateThresholdAlerts(userId, controller.id, updated[0], reading.numericValue ?? null);
-      await evaluateFaultAlerts(userId, controller.id, updated[0]);
-    }
+    const channel = allChannels.find((c) => c.id === channelId);
+    if (!channel) continue;
+    await evaluateThresholdAlerts(userId, controller.id, channel, patch.numericValue);
+    await evaluateFaultAlerts(userId, controller.id, channel);
   }
 }

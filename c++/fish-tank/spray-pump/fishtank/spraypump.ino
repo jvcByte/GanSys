@@ -21,11 +21,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 //  Network & API
 // ─────────────────────────────────────────────────────────────────────────────
-static const char* WIFI_SSID        = "Ikop";
-static const char* WIFI_PASSWORD    = "maxy1234";
+#include "secrets.h"  // untracked local secrets (Wi-Fi + device key)
+#include "certs.h"    // untracked TLS CA certificate for the API host
+
 static const char* SERVER_URL       = "https://gansystems.vercel.app/api/device/sync";
 static const char* DEVICE_ID        = "ESP32-FISH-TANK-PESTICIDE-";
-static const char* DEVICE_KEY       = "iCO4fplm0G1coupS9IRYsFpMM_Bf-Eau";
 static const char* FIRMWARE_VERSION = "2.0.2";
 
 // Nigeria WAT = UTC+1
@@ -1060,7 +1060,7 @@ static void syncDevice() {
   serializeJson(req, body);
 
   WiFiClientSecure sc;
-  sc.setInsecure();
+  sc.setCACert(CA_CERT); // verify server certificate (fail-closed)
 
   HTTPClient http;
   if (!http.begin(sc, SERVER_URL)) {
@@ -1104,6 +1104,9 @@ static void syncDevice() {
   applyServerCalibration(resp["channelConfig"].as<JsonArray>());
   processPendingCommands(resp["pendingCommands"].as<JsonArray>());
 
+  // Server-side scheduling authority (audit F5): the server delivers due
+  // scheduled commands through pendingCommands. The response no longer
+  // contains scheduledCommands, so local scheduled-command execution is inert.
   JsonArray schedArr = resp["scheduledCommands"].as<JsonArray>();
   if (!schedArr.isNull()) {
     for (JsonObject cmd : schedArr) {

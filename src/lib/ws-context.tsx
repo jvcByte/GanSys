@@ -10,7 +10,7 @@ type WsContextValue = {
 
 const WsContext = createContext<WsContextValue>({ lastMessage: null, connected: false });
 
-export function WsProvider({ userId, children }: { userId: string; children: React.ReactNode }) {
+export function WsProvider({ children }: { children: React.ReactNode }) {
   const [lastMessage, setLastMessage] = useState<WsMessage | null>(null);
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
@@ -20,7 +20,7 @@ export function WsProvider({ userId, children }: { userId: string; children: Rea
     if (typeof window === "undefined") return;
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const url = `${protocol}//${window.location.host}/api/ws?userId=${encodeURIComponent(userId)}`;
+    const url = `${protocol}//${window.location.host}/api/ws`;
     const ws = new WebSocket(url);
     wsRef.current = ws;
 
@@ -42,7 +42,7 @@ export function WsProvider({ userId, children }: { userId: string; children: Rea
     };
 
     ws.onerror = () => ws.close();
-  }, [userId]);
+  }, []);
 
   useEffect(() => {
     connect();

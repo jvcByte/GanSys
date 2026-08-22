@@ -67,12 +67,24 @@ export async function createManualCommand(
   return hydrateCommand(rows[0]!);
 }
 
+const ACK_STATUS_ALLOWLIST = new Set(["acknowledged", "executed", "failed"]);
+
+function parseAckTimestamp(value: string | undefined): Date | null {
+  if (!value) return now();
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 export async function applyAcknowledgements(
   userId: string,
   controllerId: string,
   acknowledgements: Array<{ commandId: string; status: string; executedAt?: string; deviceMessage?: string }>
 ) {
   for (const ack of acknowledgements) {
+    // Only allowlisted statuses may transition state — blocks arbitrary status writes.
+    if (!ACK_STATUS_ALLOWLIST.has(ack.status)) continue;
+    const ackedAt = parseAckTimestamp(ack.executedAt);
+    if (!ackedAt) continue; // reject invalid timestamps
     // Check if it's a regular command
     const commandRows = await db.select().from(commands)
       .where(and(eq(commands.id, ack.commandId), eq(commands.controllerId, controllerId)));
@@ -85,10 +97,10 @@ export async function applyAcknowledgements(
 
     if (!command && !scheduledCommand) continue;
 
-    const ackedAt = ack.executedAt ? new Date(ack.executedAt) : now();
-
-    // Handle regular command acknowledgement
-    if (command) {
+    // Handle regular command acknowledgement.
+    // Only pending commands accept acks, so delayed/malformed acks cannot
+    // overwrite cancelled, expired, or already-executed commands.
+    if (command && command.status === "pending") {
       await db.update(commands)
         .set({ status: ack.status, acknowledgedAt: ackedAt, deviceMessage: ack.deviceMessage ?? null })
         .where(eq(commands.id, command.id));
@@ -115,8 +127,9 @@ export async function applyAcknowledgements(
       }
     }
 
-    // Handle scheduled command acknowledgement
-    if (scheduledCommand) {
+    // Handle scheduled command acknowledgement.
+    // Only pending rows may transition — cancelled/failed/executed rows are left untouched.
+    if (scheduledCommand && scheduledCommand.status === "pending") {
       if (ack.status === "acknowledged" || ack.status === "executed") {
         await db.update(scheduledCommands)
           .set({ 

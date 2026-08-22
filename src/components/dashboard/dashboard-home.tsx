@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Cpu, AlertTriangle, Droplets, Sprout, Plus, Wifi, WifiOff, Trash2, Video, Settings as SettingsIcon } from "lucide-react";
+import { Cpu, AlertTriangle, Plus, Wifi, WifiOff, Trash2, ChevronDown } from "lucide-react";
 
 import styles from "@/components/dashboard/dashboard.module.css";
 import { ScopedErrorBoundary } from "@/components/system/scoped-error-boundary";
 import { formatRelativeTime } from "@/lib/utils";
 import { useWs } from "@/lib/ws-context";
+import { apiFetch } from "@/lib/api-client";
 import type { DashboardSnapshot } from "@/lib/types";
 
 type Props = {
@@ -29,9 +30,7 @@ function alertClass(severity: string) {
 export function DashboardHome({ initialSnapshot }: Props) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [message, setMessage] = useState("");
-  const [liveStreamUrl, setLiveStreamUrl] = useState("");
-  const [showStreamConfig, setShowStreamConfig] = useState(false);
-  const [streamUrlInput, setStreamUrlInput] = useState("");
+  const [isAlertCollapsed, setIsAlertCollapsed] = useState(false);
   const { lastMessage, connected } = useWs();
   const safeSnapshot = {
     user: snapshot?.user ?? initialSnapshot?.user,
@@ -39,37 +38,6 @@ export function DashboardHome({ initialSnapshot }: Props) {
     controllers: snapshot?.controllers ?? initialSnapshot?.controllers ?? [],
     alerts: snapshot?.alerts ?? initialSnapshot?.alerts ?? [],
   };
-
-  // Load live stream URL from localStorage
-  useEffect(() => {
-    const savedUrl = localStorage.getItem("liveStreamUrl");
-    if (savedUrl) {
-      setLiveStreamUrl(savedUrl);
-      setStreamUrlInput(savedUrl);
-    }
-  }, []);
-
-  function saveLiveStreamUrl() {
-    const trimmedUrl = streamUrlInput.trim();
-    if (trimmedUrl) {
-      localStorage.setItem("liveStreamUrl", trimmedUrl);
-      setLiveStreamUrl(trimmedUrl);
-      setMessage("Live stream URL saved!");
-      setShowStreamConfig(false);
-    } else {
-      localStorage.removeItem("liveStreamUrl");
-      setLiveStreamUrl("");
-      setMessage("Live stream URL removed.");
-      setShowStreamConfig(false);
-    }
-  }
-
-  function removeLiveStream() {
-    localStorage.removeItem("liveStreamUrl");
-    setLiveStreamUrl("");
-    setStreamUrlInput("");
-    setMessage("Live stream removed.");
-  }
 
   // React to real-time controller_update messages from WebSocket
   useEffect(() => {
@@ -85,30 +53,39 @@ export function DashboardHome({ initialSnapshot }: Props) {
   // Fallback polling when WebSocket is disconnected
   useEffect(() => {
     if (connected) return;
+    let active = true;
+    let seq = 0;
+    const controller = new AbortController();
     const interval = window.setInterval(async () => {
-      const response = await fetch("/api/controllers", { cache: "no-store" });
-      if (!response.ok) return;
-      const next = (await response.json()) as Partial<DashboardSnapshot>;
-      setSnapshot((prev) => ({
-        user: next.user ?? prev.user,
-        summary: next.summary ?? prev.summary,
-        controllers: next.controllers ?? prev.controllers,
-        alerts: next.alerts ?? prev.alerts,
-      }));
+      const mySeq = ++seq;
+      try {
+        const response = await fetch("/api/controllers", { cache: "no-store", signal: controller.signal });
+        if (!response.ok || !active || mySeq !== seq) return;
+        const next = (await response.json()) as Partial<DashboardSnapshot>;
+        setSnapshot((prev) => ({
+          user: next.user ?? prev.user,
+          summary: next.summary ?? prev.summary,
+          controllers: next.controllers ?? prev.controllers,
+          alerts: next.alerts ?? prev.alerts,
+        }));
+      } catch {
+        // Ignore transient network errors; keep the current data.
+      }
     }, 5_000);
-    return () => window.clearInterval(interval);
+    return () => { active = false; window.clearInterval(interval); controller.abort(); };
   }, [connected]);
 
   async function refreshControllers() {
-    const response = await fetch("/api/controllers", { cache: "no-store" });
-    if (response.ok) {
-      const next = (await response.json()) as Partial<DashboardSnapshot>;
+    try {
+      const next = await apiFetch<Partial<DashboardSnapshot>>("/api/controllers", { cache: "no-store" });
       setSnapshot((prev) => ({
         user: next.user ?? prev.user,
         summary: next.summary ?? prev.summary,
         controllers: next.controllers ?? prev.controllers,
         alerts: next.alerts ?? prev.alerts,
       }));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Failed to refresh controllers.");
     }
   }
 
@@ -118,14 +95,12 @@ export function DashboardHome({ initialSnapshot }: Props) {
     }
     
     setMessage("Deleting controller...");
-    const response = await fetch(`/api/controllers/${controllerId}`, { method: "DELETE" });
-    
-    if (response.ok) {
+    try {
+      await apiFetch(`/api/controllers/${controllerId}`, { method: "DELETE" });
       setMessage("Controller deleted successfully.");
       await refreshControllers();
-    } else {
-      const data = await response.json();
-      setMessage(data.error ?? "Failed to delete controller.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Failed to delete controller.");
     }
   }
 
@@ -133,196 +108,59 @@ export function DashboardHome({ initialSnapshot }: Props) {
     <>
       <header className={styles.topbar}>
         <div>
-          <p className={styles.eyebrow}>Live overview</p>
-          <h1 style={{ margin: 0, fontSize: "1.4rem", fontWeight: 700 }}>{safeSnapshot.user?.farmName ?? "Farm"} dashboard</h1>
-          <p className={styles.muted} style={{ margin: "0.2rem 0 0", fontSize: "0.85rem" }}>
-            Monitor controller uptime, water systems, soil signals, and pending field alerts.
+          <p className={styles.eyebrow}>Welcome</p>
+          <h1>{safeSnapshot.user?.farmName ?? "Farm"}</h1>
+          <p className={styles.muted} style={{ marginTop: "0.25rem", fontSize: "0.9rem" }}>
+            Real-time monitoring of controllers, sensors, and irrigation systems
           </p>
         </div>
         <div className={styles.actions}>
-          <span style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.8rem", color: connected ? "var(--success)" : "var(--muted)" }}>
-            {connected ? <Wifi size={14} /> : <WifiOff size={14} />}
+          <span style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.85rem", color: connected ? "var(--success)" : "var(--muted)" }}>
+            {connected ? <Wifi size={16} /> : <WifiOff size={16} />}
             {connected ? "Live" : "Polling"}
           </span>
           <Link className={styles.button} href="/dashboard/settings" style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-            <Plus size={15} strokeWidth={2.5} /> Add Controller
+            <Plus size={16} /> Add Controller
           </Link>
         </div>
       </header>
 
-      {message && <div className={styles.card} style={{ marginBottom: "1rem" }}>{message}</div>}
-
-      {/* Live Stream Configuration */}
-      {showStreamConfig && (
-        <div className={styles.card} style={{ marginBottom: "1rem" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" }}>
-            <div>
-              <strong>Configure Live Stream</strong>
-              <p className={styles.muted} style={{ margin: "0.3rem 0 0", fontSize: "0.85rem" }}>
-                Paste your YouTube embed URL below
-              </p>
-            </div>
-            <button
-              className={styles.ghostButton}
-              type="button"
-              onClick={() => setShowStreamConfig(false)}
-              style={{ padding: "0.4rem 0.6rem" }}
-            >
-              Cancel
-            </button>
-          </div>
-          <div className={styles.formGrid}>
-            <label className={styles.formRow}>
-              <span>YouTube Embed URL</span>
-              <input
-                type="url"
-                value={streamUrlInput}
-                onChange={(e) => setStreamUrlInput(e.target.value)}
-                placeholder="https://www.youtube.com/embed/VIDEO_ID"
-                style={{ width: "100%" }}
-              />
-              <p className={styles.small} style={{ margin: "0.3rem 0 0", color: "var(--muted)" }}>
-                Format: https://www.youtube.com/embed/VIDEO_ID (not /watch?v=)
-              </p>
-            </label>
-            <div style={{ display: "flex", gap: "0.5rem" }}>
-              <button
-                className={styles.button}
-                type="button"
-                onClick={saveLiveStreamUrl}
-              >
-                Save Live Stream URL
-              </button>
-              {liveStreamUrl && (
-                <button
-                  className={styles.dangerButton}
-                  type="button"
-                  onClick={removeLiveStream}
-                >
-                  Remove Stream
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Live Stream Section */}
-      {liveStreamUrl && (
-        <ScopedErrorBoundary
-          badge="Live stream"
-          title="Live stream unavailable"
-          message="The video feed could not load, but the rest of the dashboard is still available."
-        >
-          <section className={styles.section} style={{ marginBottom: "1.5rem" }}>
-            <div className={styles.sectionHead}>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <Video size={16} style={{ color: "var(--muted)" }} />
-                <div>
-                  <p className={styles.eyebrow}>Surveillance</p>
-                  <h2 style={{ margin: 0, fontSize: "1.1rem" }}>Live Weed Detection Feed</h2>
-                </div>
-              </div>
-              <button
-                className={styles.ghostButton}
-                type="button"
-                onClick={() => setShowStreamConfig(true)}
-                style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}
-              >
-                <SettingsIcon size={14} /> Configure
-              </button>
-            </div>
-            <div style={{ 
-              position: "relative", 
-              paddingBottom: "56.25%", 
-              height: 0, 
-              overflow: "hidden",
-              borderRadius: "12px",
-              background: "var(--surface)"
-            }}>
-              <iframe
-                src={liveStreamUrl}
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  width: "100%",
-                  height: "100%",
-                  border: "none",
-                  borderRadius: "12px"
-                }}
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-                title="Live Farm Surveillance Feed"
-              />
-            </div>
-          </section>
-        </ScopedErrorBoundary>
-      )}
-
-      {/* Add Live Stream Button (when no stream configured) */}
-      {!liveStreamUrl && !showStreamConfig && (
-        <div className={styles.card} style={{ marginBottom: "1rem", textAlign: "center" }}>
-          <Video size={24} style={{ color: "var(--muted)", margin: "0 auto 0.5rem" }} />
-          <p className={styles.muted} style={{ marginBottom: "0.8rem" }}>
-            Add a YouTube live stream for weed detection and farm surveillance
-          </p>
-          <button
-            className={styles.button}
-            type="button"
-            onClick={() => setShowStreamConfig(true)}
-            style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}
-          >
-            <Plus size={15} /> Add Live Stream
-          </button>
+      {message && (
+        <div className={styles.card} style={{ marginBottom: "1.5rem", padding: "1rem" }}>
+          <p style={{ margin: 0 }}>{message}</p>
         </div>
       )}
 
       <ScopedErrorBoundary
-        badge="Overview metrics"
-        title="Overview metrics are unavailable"
-        message="The dashboard shell is still active, but the summary cards could not render."
+        badge="Overview"
+        title="Overview unavailable"
+        message="The summary metrics could not load, but the controller list is still available."
       >
-        <section className={styles.section}>
+        <section className={styles.section} style={{ marginBottom: "2rem" }}>
           <div className={styles.summaryGrid}>
             <article className={styles.summaryCard}>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--muted)" }}>
-                <Cpu size={14} />
-                <p className={styles.eyebrow} style={{ margin: 0 }}>Controllers</p>
-              </div>
+              <p className={styles.eyebrow}>Controllers</p>
               <strong>{safeSnapshot.summary?.controllerCount ?? 0}</strong>
-              <p className={styles.muted} style={{ margin: 0, fontSize: "0.82rem" }}>
-                {safeSnapshot.summary?.onlineControllers ?? 0} online,{" "}
-                {(safeSnapshot.summary?.controllerCount ?? 0) - (safeSnapshot.summary?.onlineControllers ?? 0)} offline
+              <p className={styles.muted}>
+                {safeSnapshot.summary?.onlineControllers ?? 0} online
               </p>
             </article>
             <article className={styles.summaryCard}>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--muted)" }}>
-                <AlertTriangle size={14} />
-                <p className={styles.eyebrow} style={{ margin: 0 }}>Alerts</p>
-              </div>
+              <p className={styles.eyebrow}>Alerts</p>
               <strong>{(safeSnapshot.summary?.criticalAlerts ?? 0) + (safeSnapshot.summary?.warningAlerts ?? 0)}</strong>
-              <p className={styles.muted} style={{ margin: 0, fontSize: "0.82rem" }}>
-                {safeSnapshot.summary?.criticalAlerts ?? 0} critical, {safeSnapshot.summary?.warningAlerts ?? 0} warning{(safeSnapshot.summary?.warningAlerts ?? 0) === 1 ? "" : "s"}
+              <p className={styles.muted}>
+                {safeSnapshot.summary?.criticalAlerts ?? 0} critical
               </p>
             </article>
             <article className={styles.summaryCard}>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--muted)" }}>
-                <Droplets size={14} />
-                <p className={styles.eyebrow} style={{ margin: 0 }}>Tank Average</p>
-              </div>
+              <p className={styles.eyebrow}>Tank Level</p>
               <strong>{safeSnapshot.summary?.avgTankLevel ?? "--"}%</strong>
-              <p className={styles.muted} style={{ margin: 0, fontSize: "0.82rem" }}>Across registered tank channels</p>
+              <p className={styles.muted}>Average</p>
             </article>
             <article className={styles.summaryCard}>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--muted)" }}>
-                <Sprout size={14} />
-                <p className={styles.eyebrow} style={{ margin: 0 }}>Soil Average</p>
-              </div>
+              <p className={styles.eyebrow}>Soil Moisture</p>
               <strong>{safeSnapshot.summary?.avgSoilMoisture ?? "--"}%</strong>
-              <p className={styles.muted} style={{ margin: 0, fontSize: "0.82rem" }}>
-                {safeSnapshot.summary?.openCommands ?? 0} manual command{(safeSnapshot.summary?.openCommands ?? 0) === 1 ? "" : "s"} pending
-              </p>
+              <p className={styles.muted}>Average</p>
             </article>
           </div>
         </section>
@@ -330,18 +168,15 @@ export function DashboardHome({ initialSnapshot }: Props) {
 
       <section className={styles.metricGrid}>
         <ScopedErrorBoundary
-          badge="Controller fleet"
-          title="Controller inventory could not render"
-          message="The dashboard is still available, but the controller list failed in this section."
+          badge="Controllers"
+          title="Controllers unavailable"
+          message="The controller list could not load, but the rest of the dashboard is available."
         >
           <div className={styles.section}>
             <div className={styles.sectionHead}>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <Cpu size={16} style={{ color: "var(--muted)" }} />
-                <div>
-                  <p className={styles.eyebrow}>Controllers</p>
-                  <h2 style={{ margin: 0, fontSize: "1.1rem" }}>ESP32 fleet</h2>
-                </div>
+              <div>
+                <p className={styles.eyebrow}>Inventory</p>
+                <h2 style={{ margin: "0.3rem 0 0", fontSize: "1.2rem", fontWeight: 600 }}>ESP32 Controllers</h2>
               </div>
             </div>
 
@@ -349,12 +184,12 @@ export function DashboardHome({ initialSnapshot }: Props) {
               {safeSnapshot.controllers.length ? (
                 safeSnapshot.controllers.map((controller) => (
                   <article key={controller.id} className={styles.controllerCard}>
-                    <div className={styles.cardHead}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: "1rem" }}>
                       <div>
                         <p className={styles.eyebrow}>{controller.location}</p>
-                        <h3>{controller.name}</h3>
-                        <p className={styles.muted}>
-                          {controller.hardwareId} / Last seen {formatRelativeTime(controller.lastSeenAt)}
+                        <h3 style={{ margin: 0 }}>{controller.name}</h3>
+                        <p className={styles.muted} style={{ fontSize: "0.8rem", margin: "0.25rem 0 0" }}>
+                          {controller.hardwareId}
                         </p>
                       </div>
                       <span className={`${styles.status} ${statusClass(controller.status)}`}>{controller.status}</span>
@@ -364,69 +199,101 @@ export function DashboardHome({ initialSnapshot }: Props) {
                       <span className={styles.tag}>{controller.channelCount} channels</span>
                       <span className={styles.tag}>{controller.sensorCount} sensors</span>
                       <span className={styles.tag}>{controller.actuatorCount} actuators</span>
-                      <span className={styles.tag}>{controller.openAlertCount} open alerts</span>
                     </div>
 
-                    <p className={styles.muted}>{controller.description || "No description yet."}</p>
+                    <p className={styles.muted} style={{ margin: "0.5rem 0 0", fontSize: "0.85rem" }}>
+                      {controller.description || "—"}
+                    </p>
 
-                    <div className={styles.rowBetween}>
-                      <div className={styles.muted}>
-                        <strong>{controller.firmwareVersion}</strong>
-                        <div className={styles.small}>Firmware</div>
-                      </div>
-                      <div style={{ display: "flex", gap: "0.5rem" }}>
-                        <Link className={styles.button} href={`/dashboard/controllers/${controller.id}`}>
-                          Open Controller
-                        </Link>
-                        <button
-                          className={styles.dangerButton}
-                          type="button"
-                          onClick={() => void deleteController(controller.id, controller.name)}
-                          style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}
-                        >
-                          <Trash2 size={14} /> Delete
-                        </button>
-                      </div>
+                    <div style={{ display: "flex", gap: "0.6rem", marginTop: "1rem" }}>
+                      <Link className={styles.button} href={`/dashboard/controllers/${controller.id}`} style={{ flex: 1 }}>
+                        Open
+                      </Link>
+                      <button
+                        className={styles.dangerButton}
+                        type="button"
+                        onClick={() => void deleteController(controller.id, controller.name)}
+                      >
+                        Delete
+                      </button>
                     </div>
                   </article>
                 ))
               ) : (
-                <div className={styles.empty}>No controllers yet. Open Settings to register your first ESP32.</div>
+                <div className={styles.empty} style={{ gridColumn: "1 / -1" }}>
+                  No controllers registered yet
+                </div>
               )}
             </div>
           </div>
         </ScopedErrorBoundary>
 
         <ScopedErrorBoundary
-          badge="Alert feed"
-          title="Open alerts could not render"
-          message="The alert panel failed, but the rest of the dashboard is still available."
+          badge="Alerts"
+          title="Alerts unavailable"
+          message="The alert panel could not load, but the rest of the dashboard is available."
         >
           <aside className={styles.section}>
-            <div className={styles.sectionHead}>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <AlertTriangle size={16} style={{ color: "var(--muted)" }} />
-                <div>
-                  <p className={styles.eyebrow}>Attention</p>
-                  <h2 style={{ margin: 0, fontSize: "1.1rem" }}>Open alerts</h2>
+            <div className={styles.alertPanel}>
+              <div 
+                className={styles.alertHeader}
+                onClick={() => setIsAlertCollapsed(!isAlertCollapsed)}
+              >
+                <div className={styles.alertHeaderContent}>
+                  <span className={styles.alertBadge}>
+                    {safeSnapshot.alerts.length}
+                  </span>
+                  <div className={styles.alertStats}>
+                    <div className={styles.alertStat}>
+                      <span className={`${styles.alertStatBadge} ${styles.alertStatCritical}`}>
+                        {safeSnapshot.alerts.filter(a => a.severity === 'critical').length}
+                      </span>
+                      <span className={styles.alertStatLabel}>Critical</span>
+                    </div>
+                    <div className={styles.alertStat}>
+                      <span className={`${styles.alertStatBadge} ${styles.alertStatWarning}`}>
+                        {safeSnapshot.alerts.filter(a => a.severity === 'warning').length}
+                      </span>
+                      <span className={styles.alertStatLabel}>Warning</span>
+                    </div>
+                    <div className={styles.alertStat}>
+                      <span className={`${styles.alertStatBadge} ${styles.alertStatInfo}`}>
+                        {safeSnapshot.alerts.filter(a => a.severity === 'info').length}
+                      </span>
+                      <span className={styles.alertStatLabel}>Info</span>
+                    </div>
+                  </div>
+                </div>
+                <button 
+                  className={styles.alertToggle}
+                  type="button"
+                  aria-label={isAlertCollapsed ? "Expand alerts" : "Collapse alerts"}
+                >
+                  <ChevronDown 
+                    size={18}
+                    className={`${styles.alertToggleIcon} ${isAlertCollapsed ? styles.collapsed : ''}`}
+                  />
+                </button>
+              </div>
+
+              <div className={`${styles.alertContent} ${isAlertCollapsed ? styles.collapsed : ''}`}>
+                <div className={styles.alertList}>
+                  {safeSnapshot.alerts.length ? (
+                    safeSnapshot.alerts.map((alert) => (
+                      <article key={alert.id} className={`${styles.alertCard} ${alertClass(alert.severity)}`}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: "1rem", marginBottom: "0.3rem" }}>
+                          <strong style={{ fontSize: "0.95rem" }}>{alert.title}</strong>
+                          <span style={{ fontSize: "0.7rem", fontWeight: 600, textTransform: "uppercase", color: "var(--muted)" }}>{alert.severity}</span>
+                        </div>
+                        <p className={styles.muted} style={{ margin: "0.2rem 0 0.3rem", fontSize: "0.85rem" }}>{alert.message}</p>
+                        <p className={styles.small} style={{ margin: 0 }}>{formatRelativeTime(alert.openedAt)}</p>
+                      </article>
+                    ))
+                  ) : (
+                    <div className={styles.empty}>All systems nominal</div>
+                  )}
                 </div>
               </div>
-            </div>
-            <div className={styles.alertList}>
-              {safeSnapshot.alerts.length ? (
-                safeSnapshot.alerts.map((alert) => (
-                  <article key={alert.id} className={`${styles.alertCard} ${alertClass(alert.severity)}`}>
-                    <div className={styles.rowBetween}>
-                      <strong>{alert.title}</strong>
-                      <span className={styles.muted}>{alert.severity}</span>
-                    </div>
-                    <p className={styles.muted}>{alert.message}</p>
-                    <p className={styles.small}>{formatRelativeTime(alert.openedAt)}</p>
-                  </article>
-                ))
-              ) : (
-                <div className={styles.empty}>No open alerts. The current dashboard state is stable.</div>
-              )}
             </div>
           </aside>
         </ScopedErrorBoundary>

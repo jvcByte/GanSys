@@ -48,9 +48,21 @@ This will create:
 
 ### 4. Start the Application
 
+Development (hot reload + WebSocket/MQTT/scheduler):
+
 ```bash
 npm run dev:server
 ```
+
+Production (after `npm run build`):
+
+```bash
+npm start
+```
+
+This runs `node dist/server.js` — the custom server that starts HTTP, WebSocket
+upgrades, the MQTT client, and the scheduler. Set `ALLOWED_ORIGINS` (comma-separated)
+to the list of browser origins allowed to open WebSocket connections.
 
 The application will start on `http://localhost:3000`
 

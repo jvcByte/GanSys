@@ -1,4 +1,4 @@
-import { and, eq, gte, lte } from "drizzle-orm";
+import { and, eq, inArray, lt, lte } from "drizzle-orm";
 
 import { createId } from "@/lib/auth";
 import { db } from "@/lib/db/client";
@@ -138,37 +138,66 @@ export async function cancelScheduledCommand(userId: string, scheduledCommandId:
   );
 }
 
+const CLAIM_BATCH_LIMIT = 50;
+const CLAIM_LEASE_MINUTES = 5;
+
 /**
  * Process scheduled commands that are due for execution.
  * This should be called periodically by a background worker.
+ *
+ * Rows are claimed atomically: an UPDATE with a conditional status transition
+ * (pending -> processing) plus a lease ensures concurrent scheduler instances
+ * or overlapping runs never execute the same scheduled command twice.
  */
 export async function processDueScheduledCommands() {
   const currentTime = now();
 
-  // Find all pending scheduled commands that are due
-  const dueCommands = await db
-    .select({
-      scheduledCommand: scheduledCommands,
-      channel: channels,
-    })
+  // Recover rows whose lease expired (a previous worker crashed mid-execution).
+  await db.update(scheduledCommands)
+    .set({ status: "pending", leaseUntil: null })
+    .where(and(
+      eq(scheduledCommands.status, "processing"),
+      lt(scheduledCommands.leaseUntil, currentTime)
+    ));
+
+  // Select a bounded batch of due rows.
+  const dueIds = await db.select({ id: scheduledCommands.id })
     .from(scheduledCommands)
-    .innerJoin(channels, eq(scheduledCommands.channelId, channels.id))
-    .where(
-      and(
-        eq(scheduledCommands.status, "pending"),
-        lte(scheduledCommands.scheduledFor, currentTime)
-      )
-    );
+    .where(and(
+      eq(scheduledCommands.status, "pending"),
+      lte(scheduledCommands.scheduledFor, currentTime)
+    ))
+    .limit(CLAIM_BATCH_LIMIT);
+
+  if (!dueIds.length) {
+    return { processed: 0, succeeded: 0, failed: 0 };
+  }
+
+  // Atomically claim the rows. Only the run whose UPDATE matches status='pending'
+  // receives rows back; concurrent runs claim nothing for already-claimed rows.
+  const leaseUntil = new Date(currentTime.getTime() + CLAIM_LEASE_MINUTES * 60 * 1000);
+  const claimed = await db.update(scheduledCommands)
+    .set({ status: "processing", leaseUntil })
+    .where(and(
+      inArray(scheduledCommands.id, dueIds.map((row) => row.id)),
+      eq(scheduledCommands.status, "pending")
+    ))
+    .returning();
 
   const results = {
-    processed: 0,
+    processed: claimed.length,
     succeeded: 0,
     failed: 0,
   };
 
-  for (const { scheduledCommand, channel } of dueCommands) {
-    results.processed++;
+  if (!claimed.length) return results;
 
+  // Resolve channel names for logging.
+  const channelRows = await db.select().from(channels)
+    .where(inArray(channels.id, [...new Set(claimed.map((row) => row.channelId))]));
+  const channelNameById = new Map(channelRows.map((c) => [c.id, c.name]));
+
+  for (const scheduledCommand of claimed) {
     try {
       // Create the actual command
       const command = await createManualCommand(
@@ -182,20 +211,21 @@ export async function processDueScheduledCommands() {
         }
       );
 
-      // Mark scheduled command as executed
+      // Mark scheduled command as executed and release the lease
       await db
         .update(scheduledCommands)
         .set({
           status: "executed",
           executedAt: currentTime,
           executedCommandId: command.id,
+          leaseUntil: null,
         })
         .where(eq(scheduledCommands.id, scheduledCommand.id));
 
       results.succeeded++;
-      console.log(`[ScheduledCommand] Executed scheduled command ${scheduledCommand.id} for channel ${channel.name}`);
+      console.log(`[ScheduledCommand] Executed scheduled command ${scheduledCommand.id} for channel ${channelNameById.get(scheduledCommand.channelId) ?? scheduledCommand.channelId}`);
     } catch (error) {
-      // Mark as failed
+      // Mark as failed and release the lease
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       await db
         .update(scheduledCommands)
@@ -203,6 +233,7 @@ export async function processDueScheduledCommands() {
           status: "failed",
           executedAt: currentTime,
           failureReason: errorMessage,
+          leaseUntil: null,
         })
         .where(eq(scheduledCommands.id, scheduledCommand.id));
 

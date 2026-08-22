@@ -4,9 +4,9 @@ import { deviceSync } from "@/lib/services/device-sync.service";
 import { applyAcknowledgements } from "@/lib/services/command.service";
 import { broadcastToUser } from "@/lib/ws/server";
 import { getControllerSnapshot } from "@/lib/services/snapshot.service";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
-import { controllers } from "@/lib/db/schema";
+import { channels, controllers } from "@/lib/db/schema";
 
 const TOPIC_READINGS = "gansys/+/readings";
 const TOPIC_ACKS = "gansys/+/acks";
@@ -133,11 +133,20 @@ async function handleSnapshot(hardwareId: string, body: Record<string, unknown>)
     }],
   }, true);
 
+  // Resolve the channel id so the broadcast key matches the frontend's
+  // latestSnapshots record (keyed by channel id, not channel key).
+  const channelRows = await db
+    .select({ id: channels.id })
+    .from(channels)
+    .where(and(eq(channels.controllerId, controller.id), eq(channels.channelKey, channelKey)));
+  const channel = channelRows[0];
+  if (!channel) return;
+
   try {
     const snapshot = await getControllerSnapshot(controller.userId, controller.id);
     broadcastToUser(controller.userId, {
       type: "snapshot_update",
-      data: { channelId: channelKey, snapshot: snapshot.latestSnapshots[channelKey] ?? { imageUrl: null, imageBase64: null } },
+      data: { channelId: channel.id, snapshot: snapshot.latestSnapshots[channel.id] ?? { imageUrl: null, imageBase64: null } },
     });
   } catch (err) {
     console.error("[MQTT] Broadcast error after snapshot:", err);
@@ -147,7 +156,9 @@ async function handleSnapshot(hardwareId: string, body: Record<string, unknown>)
 export function publishCommands(hardwareId: string, payload: unknown): void {
   if (!mqttClient || typeof (mqttClient as MqttClient).publish !== "function") return;
   const topic = `gansys/${hardwareId}/commands`;
-  (mqttClient as MqttClient).publish(topic, JSON.stringify(payload), { qos: 1, retain: true }, (err) => {
+  // One-shot commands must NOT be retained: a reconnecting device would otherwise
+  // receive stale/old commands after they were acknowledged, cancelled, or superseded.
+  (mqttClient as MqttClient).publish(topic, JSON.stringify(payload), { qos: 1, retain: false }, (err) => {
     if (err) console.error(`[MQTT] Publish error on ${topic}:`, err);
   });
 }

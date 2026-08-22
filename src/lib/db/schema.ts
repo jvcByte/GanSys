@@ -179,17 +179,23 @@ export const scheduledCommands = pgTable(
     desiredNumericValue: doublePrecision("desired_numeric_value"),
     note: text("note").notNull().default(""),
     scheduledFor: timestamp("scheduled_for", { withTimezone: true }).notNull(),
-    status: text("status").notNull().default("pending"), // pending, executed, cancelled, failed
+    status: text("status").notNull().default("pending"), // pending, processing, executed, cancelled, failed
     executedCommandId: text("executed_command_id").references(() => commands.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
     executedAt: timestamp("executed_at", { withTimezone: true }),
     cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
     failureReason: text("failure_reason"),
+    // Lease for atomic claim: a row claimed by the scheduler moves to "processing"
+    // with a lease_until; if the lease expires, a later run re-claims it.
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    // Idempotency key for auto-generated schedules: one row per channel/state/date.
+    occurrenceKey: text("occurrence_key"),
   },
   (table) => [
     index("scheduled_commands_controller_id_idx").on(table.controllerId),
     index("scheduled_commands_channel_id_idx").on(table.channelId),
     index("scheduled_commands_status_idx").on(table.status),
     index("scheduled_commands_scheduled_for_idx").on(table.scheduledFor),
+    uniqueIndex("scheduled_commands_occurrence_key_idx").on(table.occurrenceKey),
   ]
 );
