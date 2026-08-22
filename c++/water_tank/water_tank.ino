@@ -18,12 +18,11 @@
 //  - mDNS hostname for slave ESP32 time sharing
 // =============================================================================
 
-const char* WIFI_SSID        = "Ikop";
-const char* WIFI_PASSWORD    = "maxy1234";
+#include "secrets.h"  // untracked local secrets (Wi-Fi + device key)
+#include "certs.h"    // untracked TLS CA certificate for the API host
 
 const char* SERVER_URL       = "https://gansystems.vercel.app/api/device/sync";
 const char* DEVICE_ID        = "ESP32-CONTROLLER";
-const char* DEVICE_KEY       = "rX0Wb8B8MyynWss9-gjLSSyiktDcc8gO";
 const char* FIRMWARE_VERSION = "1.0.0";
 
 const char* TANK_CHANNEL_KEY = "tank_main";
@@ -719,7 +718,7 @@ void syncDevice() {
   serializeJson(requestDoc, body);
 
   WiFiClientSecure secureClient;
-  secureClient.setInsecure();
+  secureClient.setCACert(CA_CERT); // verify server certificate (fail-closed)
 
   HTTPClient http;
   if (!http.begin(secureClient, SERVER_URL)) {
@@ -774,7 +773,9 @@ void syncDevice() {
   JsonArray pendingCommands = responseDoc["pendingCommands"].as<JsonArray>();
   processPendingCommands(pendingCommands, cachedTankPercent, nowEpoch);
 
-  // Process scheduled commands from server
+  // Server-side scheduling authority (audit F5): the server delivers due
+  // scheduled commands through pendingCommands. The sync response no longer
+  // contains scheduledCommands, so this local-schedule block is inert.
   JsonArray scheduledCommandsArray = responseDoc["scheduledCommands"].as<JsonArray>();
   if (!scheduledCommandsArray.isNull()) {
     for (JsonObject cmd : scheduledCommandsArray) {

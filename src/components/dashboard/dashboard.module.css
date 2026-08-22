@@ -1,124 +1,143 @@
 .app {
-  width: min(1480px, calc(100% - 32px));
-  margin: 24px auto;
+  width: min(1440px, calc(100% - 32px));
+  margin: 0 auto;
   display: grid;
-  grid-template-columns: 260px 1fr;
-  gap: 20px;
+  grid-template-columns: 240px 1fr;
+  gap: 0;
+  min-height: 100vh;
 }
 
 /* ── Sidebar ─────────────────────────────────────────────────────────────── */
 .sidebar {
   background: var(--surface);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-lg);
-  padding: 1.25rem;
-  min-height: calc(100vh - 48px);
+  border-right: 1px solid var(--line);
+  padding: 1.5rem 1rem;
+  min-height: 100vh;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   position: sticky;
-  top: 24px;
+  top: 0;
+  overflow-y: auto;
 }
 
 .brand {
   display: flex;
   gap: 0.75rem;
   align-items: center;
+  margin-bottom: 1.5rem;
 }
 
 .brandOrb {
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   flex-shrink: 0;
   display: block;
 }
 
 .eyebrow {
-  margin: 0 0 0.25rem;
+  margin: 0 0 0.2rem;
   color: var(--muted);
-  letter-spacing: 0.1em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
-  font-size: 0.7rem;
+  font-size: 0.65rem;
+  font-weight: 600;
 }
 
 .nav {
-  margin-top: 1.8rem;
+  margin-top: 2rem;
   display: grid;
-  gap: 0.3rem;
+  gap: 0.4rem;
 }
 
 .navLink {
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  padding: 0.7rem 0.9rem;
+  padding: 0.6rem 0.8rem;
   border-radius: var(--radius);
   color: var(--muted);
   font-size: 0.9rem;
-  transition: color 0.15s, background 0.15s;
+  font-weight: 500;
+  transition: all 0.2s ease;
 }
-.navLink:hover { color: var(--text); background: var(--surface-hover); }
+.navLink:hover { 
+  color: var(--text); 
+  background: var(--surface-hover);
+}
 
 .navLinkActive {
   color: var(--primary);
   background: var(--primary-dim);
-  border: 1px solid rgba(0, 230, 118, 0.15);
+  font-weight: 600;
 }
 .navLinkActive:hover { background: var(--primary-dim); }
 
 .miniStats {
-  margin-top: 1.5rem;
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--line);
   display: grid;
-  gap: 0.6rem;
+  gap: 0.8rem;
 }
 
 .miniStat {
-  padding: 0.7rem 0.9rem;
-  border-radius: var(--radius);
-  background: var(--bg-soft);
-  border: 1px solid var(--line);
+  padding: 0.7rem 0;
 }
 
 .miniStat strong {
   display: block;
-  margin-top: 0.2rem;
-  font-size: 0.9rem;
+  margin-top: 0.3rem;
+  font-size: 0.95rem;
   color: var(--text);
+  font-weight: 600;
 }
 
 .account {
-  padding: 0.9rem;
-  border-radius: var(--radius);
-  background: var(--bg-soft);
-  border: 1px solid var(--line);
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--line);
 }
 
 /* ── Layout ──────────────────────────────────────────────────────────────── */
 .muted { color: var(--muted); }
-.small { font-size: 0.82rem; color: var(--muted); }
+.small { font-size: 0.8rem; color: var(--muted); }
 
 .main {
   display: grid;
-  gap: 16px;
+  gap: 0;
   min-width: 0;
+  padding: 2rem;
 }
 
 .topbar {
-  padding: 1.2rem 1.4rem;
+  padding: 1.5rem 0;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 1rem;
-  background: var(--surface);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-lg);
+  gap: 2rem;
+  background: transparent;
+  border: none;
+  margin-bottom: 2rem;
+}
+
+.topbar h1 {
+  font-size: 1.8rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0.5rem 0 0.25rem;
+}
+
+.topbar p {
+  margin: 0;
+  font-size: 0.9rem;
 }
 
 .actions {
   display: flex;
-  gap: 0.7rem;
+  gap: 1rem;
   align-items: center;
   flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 /* ── Buttons ─────────────────────────────────────────────────────────────── */
@@ -127,29 +146,43 @@
 .dangerButton {
   border: 0;
   border-radius: var(--radius);
-  padding: 0.65rem 1rem;
-  font-weight: 600;
-  font-size: 0.88rem;
-  transition: opacity 0.15s, transform 0.15s;
+  padding: 0.6rem 1rem;
+  font-weight: 500;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
   white-space: nowrap;
+  cursor: pointer;
 }
-.button:hover, .ghostButton:hover, .dangerButton:hover { opacity: 0.85; }
+.button:hover, .ghostButton:hover, .dangerButton:hover { 
+  transform: translateY(-1px);
+  box-shadow: var(--shadow);
+}
 
 .button {
-  background: linear-gradient(135deg, var(--primary), var(--primary-strong));
-  color: #0d1117;
+  background: var(--primary);
+  color: white;
+  font-weight: 600;
+}
+.button:hover {
+  background: var(--primary-strong);
 }
 
 .ghostButton {
-  background: var(--surface-strong);
+  background: transparent;
   color: var(--text-soft);
   border: 1px solid var(--line-strong);
+}
+.ghostButton:hover {
+  background: var(--surface-hover);
 }
 
 .dangerButton {
   background: var(--danger-dim);
   color: var(--danger);
-  border: 1px solid rgba(248, 81, 73, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+.dangerButton:hover {
+  background: rgba(239, 68, 68, 0.12);
 }
 
 /* ── Cards & Panels ──────────────────────────────────────────────────────── */
@@ -161,16 +194,19 @@
 .controllerCard,
 .settingsCard {
   background: var(--surface);
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--line);
   border-radius: var(--radius-lg);
 }
 
-.panel { padding: 1.2rem; }
+.panel { padding: 1.4rem; }
 .card { padding: 1rem; }
-.alertCard { padding: 0.9rem; }
+.alertCard { padding: 1rem; }
 
 /* ── Section ─────────────────────────────────────────────────────────────── */
-.section { display: grid; gap: 16px; }
+.section { 
+  display: grid; 
+  gap: 1.2rem;
+}
 
 .sectionHead {
   display: flex;
@@ -182,19 +218,19 @@
 /* ── Summary grid ────────────────────────────────────────────────────────── */
 .summaryGrid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
 }
 
 .summaryCard {
-  padding: 1.1rem;
+  padding: 1.2rem;
 }
 
 .summaryCard strong {
   display: block;
-  margin: 0.4rem 0;
-  font-size: 1.8rem;
-  font-weight: 800;
+  margin: 0.5rem 0 0.2rem;
+  font-size: 1.6rem;
+  font-weight: 700;
   color: var(--text);
   letter-spacing: -0.02em;
 }
@@ -202,14 +238,20 @@
 /* ── Controller grid ─────────────────────────────────────────────────────── */
 .controllerGrid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1.2rem;
 }
 
 .controllerCard {
-  padding: 1.1rem;
+  padding: 1.2rem;
   display: grid;
   gap: 0.9rem;
+}
+
+.controllerCard h3 {
+  margin: 0.3rem 0 0;
+  font-size: 1.1rem;
+  font-weight: 600;
 }
 
 .cardHead,
@@ -224,16 +266,16 @@
 .status {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.28rem 0.65rem;
+  gap: 0.35rem;
+  padding: 0.3rem 0.7rem;
   border-radius: 999px;
   font-size: 0.75rem;
   font-weight: 600;
 }
 
-.online  { color: var(--success); background: rgba(63, 185, 80, 0.12); border: 1px solid rgba(63, 185, 80, 0.2); }
-.stale   { color: var(--warning); background: var(--warning-dim); border: 1px solid rgba(210, 153, 34, 0.2); }
-.offline { color: var(--danger);  background: var(--danger-dim);  border: 1px solid rgba(248, 81, 73, 0.2); }
+.online  { color: var(--success); background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.2); }
+.stale   { color: var(--warning); background: var(--warning-dim); border: 1px solid rgba(245, 158, 11, 0.2); }
+.offline { color: var(--danger);  background: var(--danger-dim);  border: 1px solid rgba(239, 68, 68, 0.2); }
 
 /* ── Tags ────────────────────────────────────────────────────────────────── */
 .tags {
@@ -256,7 +298,7 @@
 .commandList,
 .channelList {
   display: grid;
-  gap: 10px;
+  gap: 0.8rem;
 }
 
 .alertCritical { border-left: 3px solid var(--danger); }
@@ -267,7 +309,7 @@
 .metricGrid {
   display: grid;
   grid-template-columns: 2fr 1fr;
-  gap: 16px;
+  gap: 1.5rem;
 }
 
 .chartPanel { min-height: 360px; }
@@ -280,40 +322,43 @@
 /* ── Sensor grid ─────────────────────────────────────────────────────────── */
 .sensorGrid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
 }
 
 .sensorCard {
-  padding: 1rem;
+  padding: 1.2rem;
   border-radius: var(--radius-lg);
   background: var(--surface);
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--line);
   display: grid;
   gap: 0.75rem;
-  transition: border-color 0.2s;
+  transition: all 0.2s ease;
 }
-.sensorCard:hover { border-color: rgba(0, 230, 118, 0.25); }
+.sensorCard:hover { 
+  border-color: var(--primary);
+  box-shadow: var(--shadow);
+}
 
 .reading {
   font-size: 1.8rem;
-  font-weight: 800;
+  font-weight: 700;
   color: var(--primary);
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
 }
 
 /* ── Linked controls ─────────────────────────────────────────────────────── */
-.linkedControlList { display: grid; gap: 8px; }
+.linkedControlList { display: grid; gap: 0.8rem; }
 
 .linkedControlCard {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.8rem;
-  padding: 0.7rem 0.85rem;
+  padding: 0.8rem 1rem;
   border-radius: var(--radius);
-  background: var(--bg-soft);
+  background: var(--surface-hover);
   border: 1px solid var(--line);
 }
 
@@ -339,7 +384,7 @@
 .modalBackdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.5);
   display: grid;
   place-items: center;
   padding: 20px;
@@ -349,33 +394,33 @@
 
 .modalCard {
   width: min(520px, 100%);
-  padding: 1.4rem;
+  padding: 1.5rem;
 }
 
 /* ── Forms ───────────────────────────────────────────────────────────────── */
-.formGrid { display: grid; gap: 0.85rem; }
+.formGrid { display: grid; gap: 1rem; }
 
 .twoCol {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.85rem;
+  gap: 1rem;
 }
 
 .threeCol {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.85rem;
+  gap: 1rem;
 }
 
 .formRow {
   display: grid;
-  gap: 0.35rem;
+  gap: 0.4rem;
 }
 
 .formRow span,
 .formRow label {
-  font-size: 0.82rem;
-  color: var(--text-soft);
+  font-size: 0.85rem;
+  color: var(--text);
   font-weight: 500;
 }
 
@@ -383,10 +428,10 @@
 .settingsGrid {
   display: grid;
   grid-template-columns: 1.05fr 0.95fr;
-  gap: 16px;
+  gap: 1.5rem;
 }
 
-.settingsCard { display: grid; gap: 1rem; padding: 1.2rem; }
+.settingsCard { display: grid; gap: 1rem; padding: 1.3rem; }
 .settingsWide { grid-column: 1 / -1; }
 
 .stepList {
@@ -399,39 +444,40 @@
 
 .inlineLabel {
   display: inline-block;
-  margin-bottom: 0.2rem;
-  font-size: 0.82rem;
-  color: var(--text-soft);
+  margin-bottom: 0.3rem;
+  font-size: 0.85rem;
+  color: var(--text);
+  font-weight: 500;
 }
 
 .codeBlock {
   padding: 1rem;
   border-radius: var(--radius);
-  border: 1px solid var(--line-strong);
-  background: var(--bg);
+  border: 1px solid var(--line);
+  background: var(--bg-soft);
   overflow: auto;
 }
 
 .codeBlock pre {
   margin: 0;
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   line-height: 1.6;
-  font-family: "Cascadia Code", "Consolas", "Fira Code", monospace;
+  font-family: "Monaco", "Menlo", "Consolas", monospace;
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--text-soft);
 }
 
-.controllerStack { display: grid; gap: 12px; }
+.controllerStack { display: grid; gap: 1rem; }
 
 /* ── Empty state ─────────────────────────────────────────────────────────── */
 .empty {
-  padding: 1.4rem;
+  padding: 1.5rem;
   border-radius: var(--radius);
   border: 1px dashed var(--line-strong);
   color: var(--muted);
   text-align: center;
-  font-size: 0.88rem;
+  font-size: 0.9rem;
 }
 
 /* ── Camera snapshot ─────────────────────────────────────────────────────── */
@@ -442,29 +488,42 @@
   border-radius: var(--radius);
   object-fit: cover;
   max-height: 320px;
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--line);
 }
 
 /* ── Responsive ──────────────────────────────────────────────────────────── */
 @media (max-width: 1100px) {
-  .app,
-  .settingsGrid,
-  .metricGrid,
-  .summaryGrid,
-  .sensorGrid,
-  .controllerGrid {
+  .app {
     grid-template-columns: 1fr;
   }
   .sidebar { position: static; min-height: auto; }
+  .settingsGrid,
+  .metricGrid,
+  .controllerGrid {
+    grid-template-columns: 1fr;
+  }
+  .summaryGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 @media (max-width: 760px) {
   .app {
-    width: min(100%, calc(100% - 16px));
-    margin: 8px auto;
-    gap: 10px;
+    width: 100%;
+    margin: 0;
+    gap: 0;
   }
-  .topbar, .sidebar { padding: 1rem; }
+  .main {
+    padding: 1rem;
+  }
+  .topbar { 
+    padding: 1rem 0;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .sidebar { padding: 1rem; }
   .twoCol, .threeCol { grid-template-columns: 1fr; }
-  .summaryGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .summaryGrid { grid-template-columns: 1fr; }
+  .metricGrid { grid-template-columns: 1fr; }
+  .sensorGrid { grid-template-columns: repeat(2, 1fr); }
 }

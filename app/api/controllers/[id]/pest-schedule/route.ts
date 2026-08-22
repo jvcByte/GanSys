@@ -1,8 +1,8 @@
 import { getRouteParams, handleRoute, parseJson, requireApiUser, type RouteContext } from "@/lib/api";
-import { getPestSchedule, upsertPestSchedule } from "@/lib/data";
+import { getControllerOwnedByUser, getPestSchedule, upsertPestSchedule } from "@/lib/data";
 import { publishCommands } from "@/lib/mqtt/client";
 import { pestScheduleSchema } from "@/lib/validators";
-import { processAutoSchedules } from "@/lib/services/auto-schedule.service";
+import { cancelPendingAutoCommands, processAutoSchedules } from "@/lib/services/auto-schedule.service";
 
 export const runtime = "nodejs";
 
@@ -18,6 +18,10 @@ export const PUT = handleRoute(async (request: Request, context: Context) => {
   const user = await requireApiUser();
   const { id } = await getRouteParams(context);
   const body = await parseJson(request, pestScheduleSchema);
+
+  // Resolve the owned controller so MQTT publishes use the hardware ID in the topic.
+  const controller = await getControllerOwnedByUser(user.id, id);
+
   const schedule = await upsertPestSchedule(user.id, id, {
     enabled: body.enabled,
     sprayEntries: body.sprayEntries,
@@ -27,10 +31,12 @@ export const PUT = handleRoute(async (request: Request, context: Context) => {
     uvEndTime: body.uvEndTime ?? null,
   });
 
-  // Push updated schedule to device immediately via MQTT.
-  publishCommands(id, { pestControlSchedule: schedule });
+  // Push updated schedule to device immediately via MQTT (topic uses hardware ID).
+  publishCommands(controller.hardwareId, { pestControlSchedule: schedule });
 
-  // Process auto-schedules to create scheduled commands for the new times
+  // Reconcile auto-generated commands: cancel pending ones created under the old
+  // schedule (or when the schedule was disabled), then create the next occurrences.
+  await cancelPendingAutoCommands(controller.id);
   void processAutoSchedules().catch((error) => {
     console.error("[API] Error processing auto-schedules after pest schedule update:", error);
   });

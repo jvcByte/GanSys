@@ -198,9 +198,10 @@ This project is not a static or purely serverless dashboard. Production behavior
 
 Recommended production shape:
 
-- deploy as a long-running Node process
-- run `npm run build`
-- start with `npm run start`
+- deploy as a long-running Node process (Railway's `startCommand` is `node dist/server.js`)
+- run `npm run build` (builds the Next app **and** bundles `server.ts` → `dist/server.js`)
+- start with `npm run start` (runs `node dist/server.js`, which starts HTTP + WebSocket + MQTT + the scheduler)
+- set `ALLOWED_ORIGINS` to the comma-separated list of browser origins allowed to open WebSocket connections
 - provide a stable Postgres database
 - place a reverse proxy in front if needed
 

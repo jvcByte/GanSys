@@ -13,6 +13,7 @@ import styles from "@/components/dashboard/dashboard.module.css";
 import { ScopedErrorBoundary } from "@/components/system/scoped-error-boundary";
 import { formatRelativeTime } from "@/lib/utils";
 import { useWs } from "@/lib/ws-context";
+import { apiFetch } from "@/lib/api-client";
 import type {
   ChannelView, ControllerSnapshot, HistoryPoint,
   PestControlSchedule, PestLogEntry, ScheduledCommandView,
@@ -126,16 +127,32 @@ export function ControllerDetail({ initialSnapshot }: Props) {
     if (!lastMessage) return;
     if (lastMessage.type === "controller_update" && lastMessage.data.id === snapshot.controller.id) {
       setSnapshot((prev) => ({ ...prev, controller: lastMessage.data }));
+    } else if (lastMessage.type === "snapshot_update") {
+      // Merge camera snapshot updates into latestSnapshots (keyed by channel id).
+      const { channelId, snapshot: snap } = lastMessage.data;
+      setSnapshot((prev) => ({
+        ...prev,
+        latestSnapshots: { ...(prev.latestSnapshots ?? {}), [channelId]: snap },
+      }));
     }
   }, [lastMessage, snapshot.controller.id]);
 
   useEffect(() => {
     if (connected) return;
+    let active = true;
+    let seq = 0;
+    const controller = new AbortController();
     const iv = window.setInterval(async () => {
-      const r = await fetch(`/api/controllers/${snapshot.controller.id}`, { cache: "no-store" });
-      if (r.ok) setSnapshot((await r.json()) as ControllerSnapshot);
+      const mySeq = ++seq;
+      try {
+        const r = await fetch(`/api/controllers/${snapshot.controller.id}`, { cache: "no-store", signal: controller.signal });
+        if (!r.ok || !active || mySeq !== seq) return;
+        setSnapshot((await r.json()) as ControllerSnapshot);
+      } catch {
+        // Ignore transient network errors; keep the current data.
+      }
     }, 3_000);
-    return () => window.clearInterval(iv);
+    return () => { active = false; window.clearInterval(iv); controller.abort(); };
   }, [connected, snapshot.controller.id]);
 
   const numericChannels = useMemo(
@@ -162,11 +179,17 @@ export function ControllerDetail({ initialSnapshot }: Props) {
   useEffect(() => {
     if (!selectedChannelId) { setHistory([]); return; }
     let active = true;
+    let seq = 0;
     async function load() {
-      const r = await fetch(`/api/channels/${selectedChannelId}/history?range=${range}`, { cache: "no-store" });
-      if (!r.ok) return;
-      const d = (await r.json()) as { points: HistoryPoint[] };
-      if (active) setHistory(d.points);
+      const mySeq = ++seq;
+      try {
+        const r = await fetch(`/api/channels/${selectedChannelId}/history?range=${range}`, { cache: "no-store" });
+        if (!r.ok || !active || mySeq !== seq) return;
+        const d = (await r.json()) as { points: HistoryPoint[] };
+        if (active) setHistory(d.points);
+      } catch {
+        // Ignore transient network errors; keep the current data.
+      }
     }
     load();
     const iv = window.setInterval(load, 10_000);
@@ -176,8 +199,11 @@ export function ControllerDetail({ initialSnapshot }: Props) {
   const controlsDisabled = snapshot.controller.status === "offline";
 
   async function refreshSnapshot() {
-    const r = await fetch(`/api/controllers/${snapshot.controller.id}`, { cache: "no-store" });
-    if (r.ok) setSnapshot((await r.json()) as ControllerSnapshot);
+    try {
+      setSnapshot(await apiFetch<ControllerSnapshot>(`/api/controllers/${snapshot.controller.id}`, { cache: "no-store" }));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Failed to refresh controller.");
+    }
   }
 
   async function deleteController() {
@@ -186,13 +212,11 @@ export function ControllerDetail({ initialSnapshot }: Props) {
     }
     
     setMessage("Deleting controller...");
-    const r = await fetch(`/api/controllers/${snapshot.controller.id}`, { method: "DELETE" });
-    
-    if (r.ok) {
+    try {
+      await apiFetch(`/api/controllers/${snapshot.controller.id}`, { method: "DELETE" });
       window.location.href = "/dashboard/controllers";
-    } else {
-      const d = await r.json();
-      setMessage(d.error ?? "Failed to delete controller.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Failed to delete controller.");
     }
   }
 

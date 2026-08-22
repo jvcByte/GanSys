@@ -1,5 +1,12 @@
 # ESP32-Side Scheduling Implementation Guide
 
+> ⚠️ **SUPERSEDED (audit Finding 5).** This document describes the old
+> device-side scheduling model. The supported model is now **server-side
+> scheduling**: the server is the single execution authority and the device
+> sync response no longer includes `scheduledCommands`. See
+> `DEVICE_INTEGRATION.md` for the current contract. This guide is kept for
+> historical reference only.
+
 ## ✅ What Was Implemented
 
 I've implemented **ESP32-side scheduling** that allows your ESP32 to handle scheduled commands locally using its DS3231 RTC. This eliminates the need for server-side background processes and works perfectly on Vercel!

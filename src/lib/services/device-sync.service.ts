@@ -74,15 +74,6 @@ export async function deviceSync(
       lte(scheduledCommands.scheduledFor, fiveMinutesAgo)
     ));
 
-  // Get pending scheduled commands (future only)
-  const currentTime = now();
-  const pendingScheduledCommands = await db.select().from(scheduledCommands)
-    .where(and(
-      eq(scheduledCommands.controllerId, controller.id), 
-      eq(scheduledCommands.status, "pending")
-    ))
-    .orderBy(asc(scheduledCommands.scheduledFor));
-
   const [channelConfig, pendingCommands] = await Promise.all([
     db.select().from(channels).where(eq(channels.controllerId, controller.id)).orderBy(channels.sortOrder),
     db.select().from(commands)
@@ -122,16 +113,9 @@ export async function deviceSync(
       overrideUntil: cmd.overrideUntil,
       note: cmd.note,
     })),
-    scheduledCommands: pendingScheduledCommands.map((cmd) => ({
-      commandId: cmd.id,
-      channelId: cmd.channelId,
-      channelKey: channelKeyById.get(cmd.channelId) ?? null,
-      commandType: cmd.commandType,
-      desiredBooleanState: cmd.desiredBooleanState,
-      desiredNumericValue: cmd.desiredNumericValue,
-      scheduledFor: cmd.scheduledFor instanceof Date ? cmd.scheduledFor.toISOString() : String(cmd.scheduledFor),
-      note: cmd.note,
-    })),
+    // Device-side scheduled command execution was removed (audit Finding 5):
+    // the server scheduler is the single execution authority and delivers due
+    // commands through pendingCommands. Devices must not execute schedules locally.
     pestControlSchedule,
   };
 }

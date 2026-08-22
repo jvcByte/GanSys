@@ -1,15 +1,15 @@
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 
-const char* WIFI_SSID = "MTN_4G_B1583C";
-const char* WIFI_PASSWORD = "4E0CB315";
+#include "secrets.h"  // untracked local secrets (Wi-Fi + device key)
+#include "certs.h"    // untracked TLS CA certificate for the API host
 
-// Laptop IP on your hotspot/Wi-Fi network.
-const char* SERVER_URL = "http://gansystems.up.railway.app/api/device/sync";
+// API endpoint (HTTPS only — server certificate is verified, fail-closed)
+const char* SERVER_URL = "https://gansystems.up.railway.app/api/device/sync";
 
 const char* DEVICE_ID = "ESP32-CONTROLLER";
-const char* DEVICE_KEY = "N3GGKSldVHv68-2Vr5M_vpld9xowwjNe";
 const char* FIRMWARE_VERSION = "1.0.0";
 
 const char* TANK_CHANNEL_KEY = "tank_main";
@@ -189,8 +189,14 @@ void syncDevice() {
   String body;
   serializeJson(requestDoc, body);
 
+  WiFiClientSecure secureClient;
+  secureClient.setCACert(CA_CERT); // verify server certificate (fail-closed)
+
   HTTPClient http;
-  http.begin(SERVER_URL);
+  if (!http.begin(secureClient, SERVER_URL)) {
+    Serial.println("[SYNC] HTTPS begin failed.");
+    return;
+  }
   http.addHeader("Content-Type", "application/json");
   http.addHeader("x-device-id", DEVICE_ID);
   http.addHeader("x-device-key", DEVICE_KEY);

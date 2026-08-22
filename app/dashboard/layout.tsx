@@ -13,7 +13,7 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
   }
 
   return (
-    <WsProvider userId={user.id}>
+    <WsProvider>
       <AppShell user={user}>{children}</AppShell>
     </WsProvider>
   );

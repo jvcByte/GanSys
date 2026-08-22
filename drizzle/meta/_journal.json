@@ -15,6 +15,13 @@
       "when": 1777321297302,
       "tag": "0001_curly_hitman",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787419000000,
+      "tag": "0002_scheduling_lease_occurrence",
+      "breakpoints": true
     }
   ]
 }

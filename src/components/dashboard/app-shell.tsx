@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Cpu, Settings, Leaf, MapPin, User } from "lucide-react";
+import { LayoutDashboard, Cpu, Settings, LogOut } from "lucide-react";
 
 import styles from "@/components/dashboard/dashboard.module.css";
 import { LogoutButton } from "@/components/dashboard/logout-button";
@@ -28,14 +28,11 @@ export function AppShell({ user, children }: Props) {
       <aside className={styles.sidebar}>
         <div>
           <div className={styles.brand}>
-            <img src="/icon.svg" alt="GanSystems logo" className={styles.brandOrb} />
-            <div>
-              <p className={styles.eyebrow}>GanSystems</p>
-              <h2 style={{ margin: 0, fontSize: "1rem", fontWeight: 700 }}>Control Hub</h2>
-            </div>
+            <img src="/icon.svg" alt="GanSystems" className={styles.brandOrb} />
+            <h2 style={{ margin: 0, fontSize: "0.95rem", fontWeight: 700, letterSpacing: "-0.01em" }}>GanSystems</h2>
           </div>
 
-          <nav className={styles.nav} aria-label="Dashboard navigation">
+          <nav className={styles.nav} aria-label="Main navigation">
             {NAV.map(({ href, label, icon: Icon, exact }) => {
               const active = exact ? pathname === href : pathname.startsWith(href);
               return (
@@ -44,8 +41,8 @@ export function AppShell({ user, children }: Props) {
                   href={href}
                   className={cn(styles.navLink, active && styles.navLinkActive)}
                 >
-                  <Icon size={16} strokeWidth={1.8} style={{ flexShrink: 0 }} />
-                  {label}
+                  <Icon size={18} strokeWidth={1.5} style={{ flexShrink: 0 }} />
+                  <span>{label}</span>
                 </Link>
               );
             })}
@@ -53,26 +50,19 @@ export function AppShell({ user, children }: Props) {
 
           <div className={styles.miniStats}>
             <div className={styles.miniStat}>
-              <span className={styles.muted} style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
-                <Leaf size={12} /> Farm
-              </span>
+              <p className={styles.muted} style={{ margin: "0", fontSize: "0.8rem" }}>Farm</p>
               <strong>{user.farmName}</strong>
             </div>
             <div className={styles.miniStat}>
-              <span className={styles.muted} style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
-                <MapPin size={12} /> Location
-              </span>
+              <p className={styles.muted} style={{ margin: "0", fontSize: "0.8rem" }}>Location</p>
               <strong>{user.location}</strong>
             </div>
           </div>
         </div>
 
         <div className={styles.account}>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.3rem" }}>
-            <User size={14} style={{ color: "var(--muted)" }} />
-            <strong style={{ fontSize: "0.9rem" }}>{user.name}</strong>
-          </div>
-          <p className={styles.muted} style={{ fontSize: "0.8rem", margin: "0 0 0.7rem" }}>{user.email}</p>
+          <strong style={{ fontSize: "0.9rem", display: "block", marginBottom: "0.2rem" }}>{user.name}</strong>
+          <p className={styles.muted} style={{ fontSize: "0.8rem", margin: "0 0 0.8rem" }}>{user.email}</p>
           <LogoutButton />
         </div>
       </aside>
