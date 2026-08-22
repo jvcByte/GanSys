@@ -77,7 +77,7 @@ export function ControllersPageClient({ initialSnapshot }: Props) {
         <div className={styles.controllerGrid}>
           {snapshot.controllers.length ? (
             snapshot.controllers.map((controller) => (
-              <article key={controller.id} className={styles.controllerCard}>
+              <article key={controller.id} className={`${styles.controllerCard} ${statusClass(controller.status)}`}>
                 <div className={styles.cardHead}>
                   <div>
                     <p className={styles.eyebrow}>{controller.location}</p>
