@@ -281,14 +281,14 @@
 /* ── Controller grid ─────────────────────────────────────────────────────── */
 .controllerGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 1.4rem;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1rem;
 }
 
 .controllerCard {
-  padding: 1.4rem;
+  padding: 1rem;
   display: grid;
-  gap: 1rem;
+  gap: 0.7rem;
   transition: all 0.3s ease;
   position: relative;
   overflow: hidden;
@@ -308,8 +308,8 @@
 }
 
 .controllerCard:hover {
-  transform: translateY(-4px);
-  box-shadow: var(--shadow-lg);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
   border-color: var(--primary);
 }
 
@@ -318,8 +318,8 @@
 }
 
 .controllerCard h3 {
-  margin: 0.4rem 0 0;
-  font-size: 1.15rem;
+  margin: 0;
+  font-size: 1rem;
   font-weight: 700;
   color: var(--text);
 }
@@ -402,6 +402,138 @@
 .channelList {
   display: grid;
   gap: 1rem;
+}
+
+/* ── Collapsible Alert Panel ─────────────────────────────────────────────── */
+.alertPanel {
+  position: relative;
+  transition: all 0.3s ease;
+}
+
+.alertHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.3s ease;
+}
+
+.alertHeader:hover {
+  background: var(--surface-hover);
+}
+
+.alertHeaderContent {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex: 1;
+}
+
+.alertBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.8rem;
+  height: 2.8rem;
+  border-radius: 50%;
+  background: var(--primary-dim);
+  border: 2px solid var(--primary);
+  font-weight: 700;
+  color: var(--primary);
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.alertStats {
+  display: flex;
+  gap: 1.2rem;
+}
+
+.alertStat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.alertStatBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  font-weight: 600;
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+
+.alertStatCritical {
+  background: rgba(255, 107, 107, 0.15);
+  color: #ff6b6b;
+  border: 1px solid rgba(255, 107, 107, 0.3);
+}
+
+.alertStatWarning {
+  background: rgba(251, 191, 36, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+}
+
+.alertStatInfo {
+  background: rgba(96, 165, 250, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(96, 165, 250, 0.3);
+}
+
+.alertStatLabel {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-weight: 500;
+  text-align: center;
+}
+
+.alertToggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: var(--radius);
+  background: var(--surface-hover);
+  border: 1px solid var(--line);
+  color: var(--text-soft);
+  transition: all 0.3s ease;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.alertToggle:hover {
+  background: var(--primary-dim);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.alertToggleIcon {
+  width: 18px;
+  height: 18px;
+  transition: transform 0.3s ease;
+}
+
+.alertToggleIcon.collapsed {
+  transform: rotate(-90deg);
+}
+
+.alertContent {
+  max-height: 600px;
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+}
+
+.alertContent.collapsed {
+  max-height: 0;
 }
 
 .alertCritical { 
@@ -628,12 +760,14 @@
   }
   .sidebar { position: static; min-height: auto; }
   .settingsGrid,
-  .metricGrid,
-  .controllerGrid {
+  .metricGrid {
     grid-template-columns: 1fr;
   }
   .summaryGrid {
     grid-template-columns: repeat(2, 1fr);
+  }
+  .alertStats {
+    gap: 0.8rem;
   }
 }
 
@@ -656,4 +790,21 @@
   .summaryGrid { grid-template-columns: 1fr; }
   .metricGrid { grid-template-columns: 1fr; }
   .sensorGrid { grid-template-columns: repeat(2, 1fr); }
+  .controllerGrid { grid-template-columns: 1fr; }
+  
+  .alertStats {
+    gap: 0.6rem;
+  }
+  
+  .alertBadge {
+    min-width: 2.4rem;
+    height: 2.4rem;
+    font-size: 1rem;
+  }
+  
+  .alertStatBadge {
+    min-width: 1.8rem;
+    height: 1.8rem;
+    font-size: 0.7rem;
+  }
 }

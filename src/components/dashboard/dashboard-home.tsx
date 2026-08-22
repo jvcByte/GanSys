@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Cpu, AlertTriangle, Plus, Wifi, WifiOff, Trash2 } from "lucide-react";
+import { Cpu, AlertTriangle, Plus, Wifi, WifiOff, Trash2, ChevronDown } from "lucide-react";
 
 import styles from "@/components/dashboard/dashboard.module.css";
 import { ScopedErrorBoundary } from "@/components/system/scoped-error-boundary";
@@ -30,6 +30,7 @@ function alertClass(severity: string) {
 export function DashboardHome({ initialSnapshot }: Props) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [message, setMessage] = useState("");
+  const [isAlertCollapsed, setIsAlertCollapsed] = useState(false);
   const { lastMessage, connected } = useWs();
   const safeSnapshot = {
     user: snapshot?.user ?? initialSnapshot?.user,
@@ -233,25 +234,66 @@ export function DashboardHome({ initialSnapshot }: Props) {
           message="The alert panel could not load, but the rest of the dashboard is available."
         >
           <aside className={styles.section}>
-            <div>
-              <p className={styles.eyebrow}>Status</p>
-              <h2 style={{ margin: "0.3rem 0 1rem", fontSize: "1.2rem", fontWeight: 600 }}>Recent Alerts</h2>
-            </div>
-            <div className={styles.alertList}>
-              {safeSnapshot.alerts.length ? (
-                safeSnapshot.alerts.map((alert) => (
-                  <article key={alert.id} className={`${styles.alertCard} ${alertClass(alert.severity)}`}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: "1rem", marginBottom: "0.3rem" }}>
-                      <strong style={{ fontSize: "0.95rem" }}>{alert.title}</strong>
-                      <span style={{ fontSize: "0.7rem", fontWeight: 600, textTransform: "uppercase", color: "var(--muted)" }}>{alert.severity}</span>
+            <div className={styles.alertPanel}>
+              <div 
+                className={styles.alertHeader}
+                onClick={() => setIsAlertCollapsed(!isAlertCollapsed)}
+              >
+                <div className={styles.alertHeaderContent}>
+                  <span className={styles.alertBadge}>
+                    {safeSnapshot.alerts.length}
+                  </span>
+                  <div className={styles.alertStats}>
+                    <div className={styles.alertStat}>
+                      <span className={`${styles.alertStatBadge} ${styles.alertStatCritical}`}>
+                        {safeSnapshot.alerts.filter(a => a.severity === 'critical').length}
+                      </span>
+                      <span className={styles.alertStatLabel}>Critical</span>
                     </div>
-                    <p className={styles.muted} style={{ margin: "0.2rem 0 0.3rem", fontSize: "0.85rem" }}>{alert.message}</p>
-                    <p className={styles.small} style={{ margin: 0 }}>{formatRelativeTime(alert.openedAt)}</p>
-                  </article>
-                ))
-              ) : (
-                <div className={styles.empty}>All systems nominal</div>
-              )}
+                    <div className={styles.alertStat}>
+                      <span className={`${styles.alertStatBadge} ${styles.alertStatWarning}`}>
+                        {safeSnapshot.alerts.filter(a => a.severity === 'warning').length}
+                      </span>
+                      <span className={styles.alertStatLabel}>Warning</span>
+                    </div>
+                    <div className={styles.alertStat}>
+                      <span className={`${styles.alertStatBadge} ${styles.alertStatInfo}`}>
+                        {safeSnapshot.alerts.filter(a => a.severity === 'info').length}
+                      </span>
+                      <span className={styles.alertStatLabel}>Info</span>
+                    </div>
+                  </div>
+                </div>
+                <button 
+                  className={styles.alertToggle}
+                  type="button"
+                  aria-label={isAlertCollapsed ? "Expand alerts" : "Collapse alerts"}
+                >
+                  <ChevronDown 
+                    size={18}
+                    className={`${styles.alertToggleIcon} ${isAlertCollapsed ? styles.collapsed : ''}`}
+                  />
+                </button>
+              </div>
+
+              <div className={`${styles.alertContent} ${isAlertCollapsed ? styles.collapsed : ''}`}>
+                <div className={styles.alertList}>
+                  {safeSnapshot.alerts.length ? (
+                    safeSnapshot.alerts.map((alert) => (
+                      <article key={alert.id} className={`${styles.alertCard} ${alertClass(alert.severity)}`}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: "1rem", marginBottom: "0.3rem" }}>
+                          <strong style={{ fontSize: "0.95rem" }}>{alert.title}</strong>
+                          <span style={{ fontSize: "0.7rem", fontWeight: 600, textTransform: "uppercase", color: "var(--muted)" }}>{alert.severity}</span>
+                        </div>
+                        <p className={styles.muted} style={{ margin: "0.2rem 0 0.3rem", fontSize: "0.85rem" }}>{alert.message}</p>
+                        <p className={styles.small} style={{ margin: 0 }}>{formatRelativeTime(alert.openedAt)}</p>
+                      </article>
+                    ))
+                  ) : (
+                    <div className={styles.empty}>All systems nominal</div>
+                  )}
+                </div>
+              </div>
             </div>
           </aside>
         </ScopedErrorBoundary>
