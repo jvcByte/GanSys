@@ -29,12 +29,6 @@ export function AppShell({ user, children }: Props) {
     <div className={cn(styles.app, isSidebarCollapsed && styles.appCollapsed)}>
       <aside className={cn(styles.sidebar, isSidebarCollapsed && styles.sidebarCollapsed)}>
         <div className={styles.sidebarHeader}>
-          <div className={styles.brand}>
-            <img src="/icon.svg" alt="GanSystems" className={styles.brandOrb} />
-            {!isSidebarCollapsed && (
-              <h2 style={{ margin: 0, fontSize: "0.95rem", fontWeight: 700, letterSpacing: "-0.01em" }}>GanSystems</h2>
-            )}
-          </div>
           <button
             className={styles.sidebarToggle}
             onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
@@ -42,6 +36,13 @@ export function AppShell({ user, children }: Props) {
           >
             {isSidebarCollapsed ? <Menu size={20} /> : <X size={20} />}
           </button>
+        </div>
+
+        <div className={styles.brand}>
+          <img src="/icon.svg" alt="GanSystems" className={styles.brandOrb} />
+          {!isSidebarCollapsed && (
+            <h2 style={{ margin: 0, fontSize: "0.95rem", fontWeight: 700, letterSpacing: "-0.01em" }}>GanSystems</h2>
+          )}
         </div>
 
         <div className={styles.sidebarContent}>
