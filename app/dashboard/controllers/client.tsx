@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Cpu, Trash2 } from "lucide-react";
+import { Cpu, Trash2, Plus } from "lucide-react";
 
 import styles from "@/components/dashboard/dashboard.module.css";
 import { formatRelativeTime } from "@/lib/utils";
@@ -72,6 +72,9 @@ export function ControllersPageClient({ initialSnapshot }: Props) {
               </h2>
             </div>
           </div>
+          <Link className={styles.button} href="/dashboard/onboarding" style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+            <Plus size={16} /> Add device
+          </Link>
         </div>
 
         <div className={styles.controllerGrid}>
@@ -120,7 +123,16 @@ export function ControllersPageClient({ initialSnapshot }: Props) {
               </article>
             ))
           ) : (
-            <div className={styles.empty}>No controllers yet. Open Settings to register your first ESP32.</div>
+            <div className={styles.empty} style={{ padding: "3rem 2rem" }}>
+              <div style={{ fontSize: "3rem", marginBottom: "1rem" }}>📡</div>
+              <h3 style={{ margin: "0 0 0.5rem", fontSize: "1.2rem" }}>No controllers yet</h3>
+              <p className={styles.muted} style={{ marginBottom: "1.5rem" }}>
+                Connect an ESP32 to start monitoring and controlling your farm.
+              </p>
+              <Link className={styles.button} href="/dashboard/onboarding" style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}>
+                <Plus size={16} /> Add your first device
+              </Link>
+            </div>
           )}
         </div>
       </section>
