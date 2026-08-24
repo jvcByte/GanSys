@@ -5,20 +5,67 @@
   gap: 0;
   min-height: 100vh;
   background: var(--bg);
+  transition: grid-template-columns 0.3s ease;
+}
+
+.appCollapsed {
+  grid-template-columns: 60px 1fr;
 }
 
 /* ── Sidebar ─────────────────────────────────────────────────────────────── */
 .sidebar {
   background: var(--surface);
   border-right: 1px solid var(--line);
-  padding: 2rem 1.5rem;
-  min-height: 100vh;
+  padding: 1.5rem 1rem;
+  height: 100vh;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
   position: sticky;
   top: 0;
+  overflow: hidden;
+  transition: width 0.3s ease, padding 0.3s ease;
+}
+
+.sidebarCollapsed {
+  padding: 1rem 0.5rem;
+  width: 60px;
+}
+
+.sidebarHeader {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 0.5rem;
+  width: 100%;
+}
+
+.sidebarToggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius);
+  background: var(--surface-hover);
+  border: 1px solid var(--line);
+  color: var(--text-soft);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.sidebarToggle:hover {
+  background: var(--primary-dim);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.sidebarContent {
+  flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .brand {
@@ -26,6 +73,7 @@
   gap: 0.75rem;
   align-items: center;
   margin-bottom: 1.5rem;
+  justify-content: center;
 }
 
 .brandOrb {
@@ -76,8 +124,30 @@
   padding-left: calc(1rem - 3px);
 }
 
-.navLinkActive:hover { 
+.navLinkActive:hover {
   background: var(--primary-dim);
+}
+
+.sidebarCollapsed .navLink {
+  justify-content: center;
+  padding: 0.9rem 0.5rem;
+}
+
+.sidebarCollapsed .navLink span {
+  display: none;
+}
+
+.sidebarCollapsed .brand h2 {
+  display: none;
+}
+
+.sidebarCollapsed .brand {
+  justify-content: center;
+  margin-bottom: 0.5rem;
+}
+
+.sidebarCollapsed .brandOrb {
+  margin: 0;
 }
 
 .miniStats {
@@ -103,6 +173,26 @@
 .account {
   padding-top: 1.5rem;
   border-top: 1px solid var(--line);
+  flex-shrink: 0;
+  margin-top: auto;
+}
+
+.sidebarCollapsed .account {
+  text-align: center;
+  padding-top: 1rem;
+}
+
+.sidebarCollapsed .account strong,
+.sidebarCollapsed .account p {
+  display: none;
+}
+
+.sidebarCollapsed .miniStats {
+  display: none;
+}
+
+.sidebarCollapsed .sidebarHeader {
+  margin-bottom: 0.5rem;
 }
 
 /* ── Layout ──────────────────────────────────────────────────────────────── */
@@ -558,12 +648,14 @@
 
 .alertContent {
   max-height: 600px;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   transition: max-height 0.3s ease;
 }
 
 .alertContent.collapsed {
   max-height: 0;
+  overflow: hidden;
 }
 
 .alertCritical { 
@@ -788,7 +880,18 @@
   .app {
     grid-template-columns: 1fr;
   }
-  .sidebar { position: static; min-height: auto; }
+  .appCollapsed {
+    grid-template-columns: 1fr;
+  }
+  .sidebar { 
+    position: static; 
+    min-height: auto; 
+    height: auto;
+  }
+  .sidebarCollapsed {
+    padding: 1.5rem 1rem;
+    width: auto;
+  }
   .settingsGrid,
   .metricGrid {
     grid-template-columns: 1fr;
@@ -807,34 +910,59 @@
     margin: 0;
     gap: 0;
   }
+  .appCollapsed {
+    grid-template-columns: 1fr;
+  }
   .main {
     padding: 1rem;
   }
-  .topbar { 
+  .topbar {
     padding: 1rem 0;
     flex-direction: column;
     align-items: flex-start;
   }
-  .sidebar { padding: 1rem; }
+  .sidebar {
+    padding: 1rem;
+    height: auto;
+    position: static;
+  }
+  .sidebarCollapsed {
+    padding: 1rem;
+    width: auto;
+  }
+  .sidebarHeader {
+    justify-content: center;
+  }
+  .sidebarToggle {
+    display: flex;
+  }
   .twoCol, .threeCol { grid-template-columns: 1fr; }
   .summaryGrid { grid-template-columns: 1fr; }
   .metricGrid { grid-template-columns: 1fr; }
   .sensorGrid { grid-template-columns: repeat(2, 1fr); }
   .controllerGrid { grid-template-columns: 1fr; }
-  
+
   .alertStats {
     gap: 0.6rem;
   }
-  
+
   .alertBadge {
     min-width: 2.4rem;
     height: 2.4rem;
     font-size: 1rem;
   }
-  
+
   .alertStatBadge {
     min-width: 1.8rem;
     height: 1.8rem;
     font-size: 0.7rem;
+  }
+
+  .sidebarCollapsed .navLink span,
+  .sidebarCollapsed .brand h2,
+  .sidebarCollapsed .account strong,
+  .sidebarCollapsed .account p,
+  .sidebarCollapsed .miniStats {
+    display: block;
   }
 }
