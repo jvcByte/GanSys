@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { ChevronDown } from "lucide-react";
 
 import styles from "@/components/dashboard/dashboard.module.css";
 import { ScopedErrorBoundary } from "@/components/system/scoped-error-boundary";
@@ -79,6 +80,14 @@ export function SettingsView({ initialSnapshot }: Props) {
     channelKey: "",
     name: "",
     template: "tank_level",
+  });
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
+    quickstart: false,
+    profile: true,
+    controller: true,
+    guide: false,
+    channels: true,
+    inventory: false,
   });
 
   const controllerOptions = useMemo(() => snapshot.controllers.map((controller) => ({ id: controller.id, name: controller.name })), [snapshot.controllers]);
@@ -435,17 +444,17 @@ export function SettingsView({ initialSnapshot }: Props) {
     <>
       <header className={styles.topbar}>
         <div>
-          <p className={styles.eyebrow}>Configuration</p>
-          <h1>Account, ESP32 devices, and sensor setup</h1>
-          <p className={styles.muted}>Manage private user dashboards, attach controllers, and define the channels each controller exposes.</p>
+          <p className={styles.eyebrow}>Settings</p>
+          <h1 style={{ margin: "0.5rem 0 0.25rem", fontSize: "1.8rem", fontWeight: 700 }}>Account & Device Configuration</h1>
+          <p className={styles.muted} style={{ margin: 0, fontSize: "0.9rem" }}>Manage your profile, register ESP32 controllers, and configure sensors and actuators.</p>
         </div>
       </header>
 
-      {message ? <div className={styles.card}>{message}</div> : null}
+      {message ? <div className={styles.card} style={{ marginBottom: "1.5rem", backgroundColor: "rgba(74, 222, 128, 0.08)", borderColor: "rgba(74, 222, 128, 0.3)" }}>{message}</div> : null}
       {revealedKey ? (
-        <div className={styles.card}>
-          <strong>One-time device key</strong>
-          <p className={styles.muted}>{revealedKey.value}</p>
+        <div className={styles.card} style={{ marginBottom: "1.5rem", backgroundColor: "rgba(74, 222, 128, 0.08)", borderColor: "rgba(74, 222, 128, 0.3)" }}>
+          <strong style={{ color: "var(--primary)", fontSize: "0.9rem", display: "block", marginBottom: "0.5rem" }}>✓ Device Key Created</strong>
+          <p className={styles.muted} style={{ margin: 0, fontFamily: "monospace", fontSize: "0.85rem" }}>{revealedKey.value}</p>
         </div>
       ) : null}
 
@@ -455,70 +464,76 @@ export function SettingsView({ initialSnapshot }: Props) {
           title="Quick start panel is unavailable"
           message="The onboarding resource failed here, but the rest of settings is still available."
         >
-        <article className={`${styles.settingsCard} ${styles.panel} ${styles.settingsWide}`}>
-          <div>
-            <p className={styles.eyebrow}>Quick start</p>
-            <h2>Make onboarding almost one-click</h2>
-            <p className={styles.muted}>Use a starter bundle, then point the ESP32 to the generated sync payload below.</p>
-          </div>
-          <div className={styles.formGrid}>
-            <div className={styles.card}>
-              <strong>Recommended flow</strong>
-              <ol className={styles.stepList}>
-                <li>Create the ESP32 with a starter bundle such as Tank + Pump or Full GanSystems Starter.</li>
-                <li>Save the one-time device key and upload the matching channel keys to the ESP32 firmware.</li>
-                <li>Use the generated sync example to post sensor values and receive pending commands.</li>
-              </ol>
+        <article className={`${styles.settingsCard} ${styles.panel} ${styles.settingsWide}`} style={{ display: !expandedSections.quickstart ? "none" : "grid" }}>
+          <div onClick={() => setExpandedSections(s => ({ ...s, quickstart: !s.quickstart }))} style={{ paddingBottom: "0.5rem", borderBottom: "1px solid rgba(74, 222, 128, 0.2)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
+              <div style={{ flex: 1 }}>
+                <p className={styles.eyebrow}>Quick start</p>
+                <h2 style={{ margin: "0.3rem 0 0", fontSize: "1.1rem" }}>One-click onboarding</h2>
+              </div>
+              <ChevronDown size={18} style={{ color: "var(--text-muted)", transform: expandedSections.quickstart ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.3s" }} />
             </div>
-            <div className={styles.card}>
-              <strong>Bundle existing controller</strong>
-              <div className={styles.formGrid}>
-                <label className={styles.formRow}>
-                  <span>Controller</span>
-                  <select
-                    value={bundleInstall.controllerId}
-                    onChange={(event) => setBundleInstall((current) => ({ ...current, controllerId: event.target.value }))}
-                    disabled={!controllerOptions.length}
-                  >
-                    {controllerOptions.map((controller) => (
-                      <option key={controller.id} value={controller.id}>
-                        {controller.name}
-                      </option>
+          </div>
+          {expandedSections.quickstart && (
+            <div className={styles.formGrid}>
+              <div className={styles.card}>
+                <strong>Recommended flow</strong>
+                <ol className={styles.stepList}>
+                  <li>Create the ESP32 with a starter bundle such as Tank + Pump or Full GanSystems Starter.</li>
+                  <li>Save the one-time device key and upload the matching channel keys to the ESP32 firmware.</li>
+                  <li>Use the generated sync example to post sensor values and receive pending commands.</li>
+                </ol>
+              </div>
+              <div className={styles.card}>
+                <strong>Bundle existing controller</strong>
+                <div className={styles.formGrid}>
+                  <label className={styles.formRow}>
+                    <span>Controller</span>
+                    <select
+                      value={bundleInstall.controllerId}
+                      onChange={(event) => setBundleInstall((current) => ({ ...current, controllerId: event.target.value }))}
+                      disabled={!controllerOptions.length}
+                    >
+                      {controllerOptions.map((controller) => (
+                        <option key={controller.id} value={controller.id}>
+                          {controller.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className={styles.formRow}>
+                    <span>Starter bundle</span>
+                    <select
+                      value={bundleInstall.presetId}
+                      onChange={(event) =>
+                        setBundleInstall((current) => ({
+                          ...current,
+                          presetId: event.target.value as Exclude<SetupPreset["id"], "custom">,
+                        }))
+                      }
+                    >
+                      {CONTROLLER_SETUP_PRESETS.filter((preset) => preset.id !== "custom").map((preset) => (
+                        <option key={preset.id} value={preset.id}>
+                          {preset.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <p className={styles.muted}>{bundlePreset.description}</p>
+                  <div className={styles.tags}>
+                    {bundlePreset.channels.map((channel) => (
+                      <span key={channel.channelKey} className={styles.tag}>
+                        {channel.name}
+                      </span>
                     ))}
-                  </select>
-                </label>
-                <label className={styles.formRow}>
-                  <span>Starter bundle</span>
-                  <select
-                    value={bundleInstall.presetId}
-                    onChange={(event) =>
-                      setBundleInstall((current) => ({
-                        ...current,
-                        presetId: event.target.value as Exclude<SetupPreset["id"], "custom">,
-                      }))
-                    }
-                  >
-                    {CONTROLLER_SETUP_PRESETS.filter((preset) => preset.id !== "custom").map((preset) => (
-                      <option key={preset.id} value={preset.id}>
-                        {preset.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <p className={styles.muted}>{bundlePreset.description}</p>
-                <div className={styles.tags}>
-                  {bundlePreset.channels.map((channel) => (
-                    <span key={channel.channelKey} className={styles.tag}>
-                      {channel.name}
-                    </span>
-                  ))}
+                  </div>
+                  <button className={styles.button} type="button" onClick={() => void applyBundleToController()} disabled={!bundleInstall.controllerId}>
+                    Add Bundle To Controller
+                  </button>
                 </div>
-                <button className={styles.button} type="button" onClick={() => void applyBundleToController()} disabled={!bundleInstall.controllerId}>
-                  Add Bundle To Controller
-                </button>
               </div>
             </div>
-          </div>
+          )}
         </article>
         </ScopedErrorBoundary>
 

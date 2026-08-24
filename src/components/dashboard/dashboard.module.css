@@ -782,18 +782,21 @@
 }
 
 /* ── Forms ───────────────────────────────────────────────────────────────── */
-.formGrid { display: grid; gap: 1rem; }
+.formGrid { 
+  display: grid; 
+  gap: 1.3rem;
+}
 
 .twoCol {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
+  gap: 1.3rem;
 }
 
 .threeCol {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1rem;
+  gap: 1.3rem;
 }
 
 .formRow {
@@ -811,11 +814,56 @@
 /* ── Settings ────────────────────────────────────────────────────────────── */
 .settingsGrid {
   display: grid;
-  grid-template-columns: 1.05fr 0.95fr;
-  gap: 1.5rem;
+  grid-template-columns: 1fr;
+  gap: 1.8rem;
 }
 
-.settingsCard { display: grid; gap: 1rem; padding: 1.3rem; }
+.settingsCard { 
+  display: grid; 
+  gap: 1.2rem; 
+  padding: 1.5rem; 
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  transition: all 0.3s ease;
+}
+
+.settingsCard:hover {
+  border-color: rgba(74, 222, 128, 0.3);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+}
+
+.settingsCard > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+}
+
+.settingsSectionToggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid rgba(74, 222, 128, 0.2);
+  color: var(--text-muted);
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.settingsSectionToggle:hover {
+  background: rgba(74, 222, 128, 0.1);
+  color: var(--primary);
+}
+
+.settingsSectionToggle.collapsed {
+  transform: rotate(-90deg);
+}
+
 .settingsWide { grid-column: 1 / -1; }
 
 .stepList {
@@ -837,8 +885,8 @@
 .codeBlock {
   padding: 1rem;
   border-radius: var(--radius);
-  border: 1px solid var(--line);
-  background: var(--bg-soft);
+  border: 1px solid rgba(74, 222, 128, 0.2);
+  background: rgba(74, 222, 128, 0.03);
   overflow: auto;
 }
 
@@ -852,7 +900,23 @@
   color: var(--text-soft);
 }
 
-.controllerStack { display: grid; gap: 1rem; }
+.controllerStack { 
+  display: grid; 
+  gap: 1rem;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.settingsContent {
+  max-height: 1000px;
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+}
+
+.settingsContent.collapsed {
+  max-height: 0;
+  overflow: hidden;
+}
 
 /* ── Empty state ─────────────────────────────────────────────────────────── */
 .empty {
