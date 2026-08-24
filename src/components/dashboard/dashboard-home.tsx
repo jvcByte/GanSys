@@ -119,8 +119,8 @@ export function DashboardHome({ initialSnapshot }: Props) {
             {connected ? <Wifi size={16} /> : <WifiOff size={16} />}
             {connected ? "Live" : "Polling"}
           </span>
-          <Link className={styles.button} href="/dashboard/settings" style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-            <Plus size={16} /> Add Controller
+          <Link className={styles.button} href="/dashboard/onboarding" style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+            <Plus size={16} /> Add Device
           </Link>
         </div>
       </header>
@@ -220,8 +220,15 @@ export function DashboardHome({ initialSnapshot }: Props) {
                   </article>
                 ))
               ) : (
-                <div className={styles.empty} style={{ gridColumn: "1 / -1" }}>
-                  No controllers registered yet
+                <div className={styles.empty} style={{ gridColumn: "1 / -1", padding: "3rem 2rem" }}>
+                  <div style={{ fontSize: "3rem", marginBottom: "1rem" }}>📡</div>
+                  <h3 style={{ margin: "0 0 0.5rem", fontSize: "1.2rem" }}>No devices yet</h3>
+                  <p className={styles.muted} style={{ marginBottom: "1.5rem" }}>
+                    Connect an ESP32 to start monitoring and controlling your farm.
+                  </p>
+                  <Link className={styles.button} href="/dashboard/onboarding" style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}>
+                    <Plus size={16} /> Add your first device
+                  </Link>
                 </div>
               )}
             </div>
