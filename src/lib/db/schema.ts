@@ -199,3 +199,76 @@ export const scheduledCommands = pgTable(
     uniqueIndex("scheduled_commands_occurrence_key_idx").on(table.occurrenceKey),
   ]
 );
+
+// ===========================================
+// Food Safety Passport Tables (Export Compliance)
+// ===========================================
+
+export const passportProfiles = pgTable(
+  "passport_profiles",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    productName: text("product_name").notNull(),
+    destination: text("destination").notNull(),
+    lookbackHours: integer("lookback_hours").notNull().default(168), // 7 days default
+    maxDataAgeMinutes: integer("max_data_age_minutes").notNull().default(60), // freshness requirement
+    version: integer("version").notNull().default(1), // optimistic concurrency
+    enabled: boolean("enabled").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [index("passport_profiles_user_id_idx").on(table.userId)]
+);
+
+export const passportProfileChannels = pgTable(
+  "passport_profile_channels",
+  {
+    id: text("id").primaryKey(),
+    profileId: text("profile_id").notNull().references(() => passportProfiles.id, { onDelete: "cascade" }),
+    channelId: text("channel_id").notNull().references(() => channels.id, { onDelete: "cascade" }),
+    minValue: doublePrecision("min_value").notNull(),
+    maxValue: doublePrecision("max_value").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("passport_profile_channels_profile_channel_idx").on(table.profileId, table.channelId),
+  ]
+);
+
+export const passportCertificates = pgTable(
+  "passport_certificates",
+  {
+    id: text("id").primaryKey(), // Format: pass_{24-hex from randomBytes(12)}
+    profileId: text("profile_id").references(() => passportProfiles.id, { onDelete: "set null" }),
+    userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    // Snapshot columns (immutable at issuance)
+    productName: text("product_name").notNull(),
+    destination: text("destination").notNull(),
+    issuerName: text("issuer_name").notNull(),
+    farmName: text("farm_name").notNull(),
+    farmLocation: text("farm_location").notNull(),
+    // Time window
+    windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+    windowEnd: timestamp("window_end", { withTimezone: true }).notNull(),
+    // Certificate state
+    status: text("status").notNull().default("valid"), // valid, revoked
+    // Immutable payload and cryptographic integrity
+    payloadJson: text("payload_json").notNull(),
+    payloadHash: text("payload_hash").notNull(),
+    signature: text("signature").notNull(),
+    signatureAlgo: text("signature_algo").notNull().default("HMAC-SHA256"),
+    certificateVersion: integer("certificate_version").notNull().default(1),
+    signatureKeyId: text("signature_key_id").notNull().default("key_v1"),
+    // Timestamps
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("passport_certificates_user_id_idx").on(table.userId),
+    index("passport_certificates_issued_at_idx").on(table.issuedAt),
+    index("passport_certificates_status_idx").on(table.status),
+    index("passport_certificates_payload_hash_idx").on(table.payloadHash),
+  ]
+);

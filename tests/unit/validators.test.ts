@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { alertQuerySchema, commandSchema, deviceSyncSchema, scheduledCommandSchema } from "@/lib/validators";
+import { alertQuerySchema, commandSchema, deviceSyncSchema, scheduledCommandSchema, passportProfileSchema, passportProfilePatchSchema } from "@/lib/validators";
 
 describe("commandSchema", () => {
   it("accepts exactly one desired value", () => {
@@ -73,5 +73,147 @@ describe("alertQuerySchema", () => {
     expect(alertQuerySchema.parse({ status: "open" })).toMatchObject({ status: "open" });
     expect(alertQuerySchema.parse({ status: "resolved" })).toMatchObject({ status: "resolved" });
     expect(() => alertQuerySchema.parse({ status: "bogus" })).toThrow();
+  });
+});
+
+// ===========================================
+// Passport Validators Tests
+// ===========================================
+
+describe("passportProfileSchema", () => {
+  const validProfile = {
+    name: "Test Profile",
+    productName: "Test Product",
+    destination: "EU",
+    lookbackHours: 168,
+    maxDataAgeMinutes: 60,
+    rules: [
+      { channelId: "ch_1", minValue: 6.5, maxValue: 9.0 },
+    ],
+  };
+
+  it("accepts valid profile", () => {
+    expect(passportProfileSchema.parse(validProfile)).toMatchObject({
+      name: "Test Profile",
+      lookbackHours: 168,
+    });
+  });
+
+  it("requires at least one rule", () => {
+    expect(() => 
+      passportProfileSchema.parse({ ...validProfile, rules: [] })
+    ).toThrow();
+  });
+
+  it("rejects lookbackHours below 24", () => {
+    expect(() => 
+      passportProfileSchema.parse({ ...validProfile, lookbackHours: 23 })
+    ).toThrow();
+  });
+
+  it("rejects lookbackHours above 720", () => {
+    expect(() => 
+      passportProfileSchema.parse({ ...validProfile, lookbackHours: 721 })
+    ).toThrow();
+  });
+
+  it("rejects maxDataAgeMinutes below 5", () => {
+    expect(() => 
+      passportProfileSchema.parse({ ...validProfile, maxDataAgeMinutes: 4 })
+    ).toThrow();
+  });
+
+  it("rejects maxDataAgeMinutes above 1440", () => {
+    expect(() => 
+      passportProfileSchema.parse({ ...validProfile, maxDataAgeMinutes: 1441 })
+    ).toThrow();
+  });
+
+  it("rejects rule with minValue >= maxValue", () => {
+    expect(() => 
+      passportProfileSchema.parse({
+        ...validProfile,
+        rules: [{ channelId: "ch_1", minValue: 9.0, maxValue: 9.0 }],
+      })
+    ).toThrow();
+
+    expect(() => 
+      passportProfileSchema.parse({
+        ...validProfile,
+        rules: [{ channelId: "ch_1", minValue: 10.0, maxValue: 9.0 }],
+      })
+    ).toThrow();
+  });
+
+  it("accepts boundary values for lookback (24, 720)", () => {
+    expect(passportProfileSchema.parse({ ...validProfile, lookbackHours: 24 })).toBeDefined();
+    expect(passportProfileSchema.parse({ ...validProfile, lookbackHours: 720 })).toBeDefined();
+  });
+
+  it("accepts boundary values for maxDataAge (5, 1440)", () => {
+    expect(passportProfileSchema.parse({ ...validProfile, maxDataAgeMinutes: 5 })).toBeDefined();
+    expect(passportProfileSchema.parse({ ...validProfile, maxDataAgeMinutes: 1440 })).toBeDefined();
+  });
+
+  it("rejects non-finite min/max values", () => {
+    expect(() => 
+      passportProfileSchema.parse({
+        ...validProfile,
+        rules: [{ channelId: "ch_1", minValue: Number.NaN, maxValue: 10 }],
+      })
+    ).toThrow();
+  });
+
+  it("validates name length (min 2)", () => {
+    expect(() => 
+      passportProfileSchema.parse({ ...validProfile, name: "A" })
+    ).toThrow();
+  });
+
+  it("validates name length (max 100)", () => {
+    expect(() => 
+      passportProfileSchema.parse({ ...validProfile, name: "A".repeat(101) })
+    ).toThrow();
+  });
+
+  it("validates productName length (max 200)", () => {
+    expect(() => 
+      passportProfileSchema.parse({ ...validProfile, productName: "A".repeat(201) })
+    ).toThrow();
+  });
+
+  it("validates destination length (max 200)", () => {
+    expect(() => 
+      passportProfileSchema.parse({ ...validProfile, destination: "A".repeat(201) })
+    ).toThrow();
+  });
+});
+
+describe("passportProfilePatchSchema", () => {
+  it("accepts partial updates", () => {
+    expect(passportProfilePatchSchema.parse({ enabled: false })).toMatchObject({ enabled: false });
+    expect(passportProfilePatchSchema.parse({ name: "New Name" })).toMatchObject({ name: "New Name" });
+    expect(passportProfilePatchSchema.parse({ lookbackHours: 48 })).toMatchObject({ lookbackHours: 48 });
+  });
+
+  it("accepts empty object", () => {
+    expect(passportProfilePatchSchema.parse({})).toEqual({});
+  });
+
+  it("still validates provided fields", () => {
+    expect(() => 
+      passportProfilePatchSchema.parse({ lookbackHours: 23 })
+    ).toThrow();
+
+    expect(() => 
+      passportProfilePatchSchema.parse({ rules: [] })
+    ).toThrow();
+  });
+
+  it("accepts rules update with valid rules", () => {
+    const result = passportProfilePatchSchema.parse({
+      rules: [{ channelId: "ch_1", minValue: 0, maxValue: 100 }],
+    });
+    expect(result.rules).toHaveLength(1);
   });
 });
