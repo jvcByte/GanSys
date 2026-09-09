@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Cpu, Settings, LogOut, Menu, X } from "lucide-react";
+import { LayoutDashboard, Cpu, Settings, LogOut, Menu, X, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 
 import styles from "@/components/dashboard/dashboard.module.css";
@@ -18,6 +18,7 @@ type Props = {
 const NAV = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard, exact: true },
   { href: "/dashboard/controllers", label: "Controllers", icon: Cpu, exact: false },
+  { href: "/dashboard/passports", label: "Passports", icon: ShieldCheck, exact: false },
   { href: "/dashboard/settings", label: "Settings", icon: Settings, exact: true },
 ];
 

@@ -128,3 +128,35 @@ export const pestScheduleSchema = z.object({
   uvStartTime: timeStringSchema.nullable().optional(),
   uvEndTime: timeStringSchema.nullable().optional(),
 });
+
+// ===========================================
+// Passport Validators
+// ===========================================
+
+export const passportRuleSchema = z.object({
+  channelId: z.string().min(1),
+  minValue: z.number().finite(),
+  maxValue: z.number().finite(),
+}).refine((val) => val.minValue < val.maxValue, {
+  message: "minValue must be less than maxValue",
+  path: ["minValue"],
+});
+
+export const passportProfileSchema = z.object({
+  name: z.string().min(2).max(100),
+  productName: z.string().min(2).max(200),
+  destination: z.string().min(2).max(200),
+  lookbackHours: z.number().int().min(24).max(720),
+  maxDataAgeMinutes: z.number().int().min(5).max(1440),
+  rules: z.array(passportRuleSchema).min(1, "At least one rule is required").max(20),
+});
+
+export const passportProfilePatchSchema = passportProfileSchema.partial().extend({
+  enabled: z.boolean().optional(),
+});
+
+export const passportPreviewSchema = z.object({
+  lookbackHours: z.number().int().min(24).max(720),
+  maxDataAgeMinutes: z.number().int().min(5).max(1440),
+  rules: z.array(passportRuleSchema).min(1, "At least one rule is required").max(20),
+});

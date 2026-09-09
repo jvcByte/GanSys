@@ -11,6 +11,8 @@ export type ChannelTemplateId =
   | "spray_pump"
   | "uv_zapper"
   | "camera_snapshot"
+  | "water_ph"
+  | "water_temperature"
   | "custom";
 
 export type ChannelKind = "sensor" | "actuator" | "hybrid";
@@ -212,6 +214,34 @@ export const CHANNEL_TEMPLATES: TemplateDefinition[] = [
     thresholdHigh: null,
     config: { display: "image" },
     calibration: {},
+  },
+  {
+    id: "water_ph",
+    label: "Water pH",
+    kind: "sensor",
+    unit: "pH",
+    minValue: 0,
+    maxValue: 14,
+    warningLow: 6.5,
+    warningHigh: 8.5,
+    thresholdLow: 5,
+    thresholdHigh: 10,
+    config: { display: "gauge", sensorType: "analog pH probe" },
+    calibration: { offset: 0 },
+  },
+  {
+    id: "water_temperature",
+    label: "Water Temperature",
+    kind: "sensor",
+    unit: "°C",
+    minValue: 0,
+    maxValue: 45,
+    warningLow: 20,
+    warningHigh: 32,
+    thresholdLow: 12,
+    thresholdHigh: 36,
+    config: { display: "line", sensorType: "DS18B20" },
+    calibration: { offset: 0 },
   },
   {
     id: "custom",

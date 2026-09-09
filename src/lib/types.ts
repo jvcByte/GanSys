@@ -194,3 +194,90 @@ export type DeviceSyncRequest = {
   readings: DeviceReadingInput[];
   acknowledgements?: DeviceAckInput[];
 };
+
+// ===========================================
+// Passport Types
+// ===========================================
+
+export type PassportProfileView = {
+  id: string;
+  name: string;
+  productName: string;
+  destination: string;
+  lookbackHours: number;
+  maxDataAgeMinutes: number;
+  version: number;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  rules: Array<{
+    id: string;
+    channelId: string;
+    channelName: string;
+    channelTemplate: string;
+    minValue: number;
+    maxValue: number;
+    unit: string;
+    suggestedMin: number | null;
+    suggestedMax: number | null;
+  }>;
+};
+
+export type PassportOverview = {
+  profiles: PassportProfileView[];
+  certificates: Array<{
+    id: string;
+    profileId: string | null;
+    profileName: string | null;
+    productName: string;
+    destination: string;
+    status: string;
+    issuedAt: string;
+    revokedAt: string | null;
+  }>;
+};
+
+export type RuleStatus = "pass" | "no_data" | "stale_data" | "out_of_range";
+
+export type ComplianceStatus = "compliant" | "non_compliant";
+
+export type RuleEvaluationResult = {
+  status: RuleStatus;
+  sampleCount: number;
+  outOfRangeCount: number;
+  inRangeCount: number;
+  min: number | null;
+  max: number | null;
+  avg: number | null;
+  latest: number | null;
+  latestObservedAt: string | null;
+  allowedMin: number;
+  allowedMax: number;
+  reason: string;
+};
+
+export type CertificateView = {
+  id: string;
+  profileId: string | null;
+  productName: string;
+  destination: string;
+  issuerName: string;
+  farmName: string;
+  farmLocation: string;
+  windowStart: string;
+  windowEnd: string;
+  status: string;
+  payloadJson: string;
+  payloadHash: string;
+  signature: string;
+  signatureAlgo: string;
+  certificateVersion: number;
+  signatureKeyId: string;
+  issuedAt: string;
+  revokedAt: string | null;
+  verification: {
+    state: "VALID" | "REVOKED" | "TAMPERED" | "NOT_FOUND" | "VERIFICATION_UNAVAILABLE";
+    hashValid: boolean;
+    signatureValid: boolean;
+  };
+};

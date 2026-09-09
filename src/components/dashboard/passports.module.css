@@ -1,0 +1,912 @@
+
+/* Passport view additions */
+.ruleMeta {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.7rem;
+  color: var(--text-muted, #6b7280);
+}
+
+.ruleStatusText {
+  margin-left: 0.3rem;
+  font-size: 0.72rem;
+  text-transform: capitalize;
+  color: inherit;
+}
+
+.issueHint {
+  margin: 0.5rem 0 0;
+  font-size: 0.78rem;
+  color: var(--warn, #b45309);
+}
+
+.previewBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.72rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.previewOk {
+  color: var(--success, #15803d);
+  background: rgba(21, 128, 61, 0.1);
+}
+
+.previewWarn {
+  color: var(--warn, #b45309);
+  background: rgba(180, 83, 9, 0.1);
+}
+
+.previewWarning {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  margin: 0.75rem 0;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.8rem;
+  border: 1px solid rgba(180, 83, 9, 0.35);
+  background: rgba(180, 83, 9, 0.08);
+  color: var(--warn, #b45309);
+  border-radius: 8px;
+}
+
+/* Passports Dashboard Styles */
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+.loading,
+.error {
+  text-align: center;
+  padding: 4rem 2rem;
+  color: var(--text-muted);
+}
+
+.error {
+  color: var(--error);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 2rem;
+  gap: 1rem;
+}
+
+.title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  margin: 0 0 0.25rem;
+}
+
+.subtitle {
+  color: var(--text-muted);
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.createButton {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.createButton:hover {
+  background: var(--accent-dark);
+}
+
+/* Sections */
+
+.section {
+  margin-bottom: 2.5rem;
+}
+
+.sectionTitle {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0 0 1rem;
+  color: var(--text);
+}
+
+.empty {
+  text-align: center;
+  padding: 3rem 2rem;
+  background: var(--card);
+  border-radius: 8px;
+  border: 1px dashed var(--border);
+  color: var(--text-muted);
+}
+
+.empty svg {
+  margin-bottom: 1rem;
+  opacity: 0.5;
+}
+
+.emptySmall {
+  text-align: center;
+  padding: 2rem;
+  background: var(--card);
+  border-radius: 8px;
+  color: var(--text-muted);
+}
+
+/* Profiles Grid */
+
+.profilesGrid {
+  display: grid;
+  gap: 1rem;
+}
+
+.profileCard {
+  background: var(--card);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  padding: 1.25rem;
+  transition: border-color 0.2s;
+}
+
+.profileCard:hover {
+  border-color: var(--border-hover);
+}
+
+.profileCardDisabled {
+  opacity: 0.6;
+}
+
+.profileHeader {
+  margin-bottom: 1rem;
+}
+
+.profileTitleRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.profileName {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.profileProduct {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin: 0 0 0.5rem;
+}
+
+.profileMeta {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.profileMeta span {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+/* Status Pills */
+
+.statusPill {
+  display: inline-flex;
+  padding: 0.25rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.statusPillCompliant {
+  background: rgba(34, 197, 94, 0.15);
+  color: #16a34a;
+}
+
+.statusPillNonCompliant {
+  background: rgba(239, 68, 68, 0.15);
+  color: #dc2626;
+}
+
+.statusPillWarning {
+  background: rgba(234, 179, 8, 0.15);
+  color: #ca8a04;
+}
+
+/* Rules Table */
+
+.rulesTable {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  font-size: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.rulesHeader,
+.rulesRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr 0.75fr 0.5fr 0.5fr;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.rulesHeader {
+  background: var(--bg-subtle);
+  font-weight: 600;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+}
+
+.rulesRow {
+  border-top: 1px solid var(--border);
+}
+
+.ruleMetric {
+  font-weight: 500;
+}
+
+.ruleAllowed {
+  color: var(--text-muted);
+}
+
+.ruleLatest,
+.ruleSamples {
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.ruleStatus {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ruleStatusOk {
+  color: #16a34a;
+}
+
+.ruleStatusFail {
+  color: #dc2626;
+}
+
+.ruleStatusWarn {
+  color: #ca8a04;
+}
+
+/* Profile Actions */
+
+.profileActions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.toggleLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.toggleLabel input {
+  width: 16px;
+  height: 16px;
+}
+
+.actionButtons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.actionBtn {
+  padding: 0.5rem 0.75rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.actionBtn:hover {
+  background: var(--bg-subtle);
+  border-color: var(--border-hover);
+}
+
+.issueBtn {
+  padding: 0.5rem 0.75rem;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.issueBtn:hover:not(:disabled) {
+  background: var(--accent-dark);
+}
+
+.issueBtnDisabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Certificates List */
+
+.certificatesList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.certificateItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: left;
+  width: 100%;
+}
+
+.certificateItem:hover {
+  border-color: var(--accent);
+  background: var(--bg-subtle);
+}
+
+.certInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.certId {
+  font-family: monospace;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.certProduct {
+  font-weight: 500;
+}
+
+.certMeta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.statusBadge {
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.statusValid {
+  background: rgba(34, 197, 94, 0.15);
+  color: #16a34a;
+}
+
+.statusRevoked {
+  background: rgba(239, 68, 68, 0.15);
+  color: #dc2626;
+}
+
+.certDate {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+/* Modal */
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.modal {
+  background: var(--card);
+  border-radius: 8px;
+  width: 100%;
+  max-width: 600px;
+  max-height: 90vh;
+  overflow: auto;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+}
+
+.certificateModal {
+  max-width: 700px;
+}
+
+.modalHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.modalHeader h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.modalClose {
+  background: transparent;
+  border: none;
+  padding: 0.25rem;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: color 0.2s;
+}
+
+.modalClose:hover {
+  color: var(--text);
+}
+
+.modalBody {
+  padding: 1.5rem;
+}
+
+.modalFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+}
+
+/* Form Styles */
+
+.formError {
+  padding: 0.75rem 1rem;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 6px;
+  color: var(--error);
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.formGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.formGroup label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.formGroup input,
+.formGroup select {
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.formGroup input:focus,
+.formGroup select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.formHint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* Rules Section */
+
+.rulesSection {
+  margin-top: 1.5rem;
+}
+
+.rulesSection > label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+}
+
+.channelSelect {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  background: var(--bg);
+  color: var(--text);
+  margin-bottom: 0.75rem;
+}
+
+.editRulesList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.editRuleItem {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: var(--bg-subtle);
+  border-radius: 6px;
+}
+
+.editRuleInfo {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.editRuleName {
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.editRuleUnit {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.editRuleBounds {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.editRuleBounds input {
+  width: 80px;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.85rem;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.editRuleBounds span {
+  color: var(--text-muted);
+}
+
+.removeRuleBtn {
+  background: transparent;
+  border: none;
+  padding: 0.25rem;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: color 0.2s;
+}
+
+.removeRuleBtn:hover {
+  color: var(--error);
+}
+
+/* Buttons */
+
+.cancelBtn {
+  padding: 0.6rem 1.25rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.cancelBtn:hover {
+  background: var(--bg-subtle);
+}
+
+.submitBtn {
+  padding: 0.6rem 1.25rem;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.submitBtn:hover:not(:disabled) {
+  background: var(--accent-dark);
+}
+
+.submitBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Certificate Modal Styles */
+
+.certStatusBanner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 1.5rem;
+  border-radius: 6px;
+  margin-bottom: 1.5rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.certStatusValid {
+  background: rgba(34, 197, 94, 0.15);
+  color: #16a34a;
+}
+
+.certStatusRevoked {
+  background: rgba(239, 68, 68, 0.15);
+  color: #dc2626;
+}
+
+.certStatusTampered {
+  background: rgba(234, 88, 12, 0.15);
+  color: #ea580c;
+}
+
+.certDetails {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.certDetailRow {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.certDetailRow label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.certDetailRow span {
+  font-size: 0.95rem;
+}
+
+/* Evidence Table */
+
+.evidenceSection {
+  margin-bottom: 1.5rem;
+}
+
+.evidenceSection h3 {
+  font-size: 0.95rem;
+  margin: 0 0 0.75rem;
+}
+
+.evidenceTable {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  font-size: 0.85rem;
+}
+
+.evidenceHeader,
+.evidenceRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 0.75fr 0.75fr;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.evidenceHeader {
+  background: var(--bg-subtle);
+  font-weight: 600;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+}
+
+.evidenceRow {
+  border-top: 1px solid var(--border);
+}
+
+.evidenceRow span {
+  display: flex;
+  flex-direction: column;
+}
+
+.evidenceOk {
+  color: #16a34a;
+  font-weight: 600;
+}
+
+.evidenceFail {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+/* Integrity Section */
+
+.integritySection {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: var(--bg-subtle);
+  border-radius: 6px;
+}
+
+.integritySection h3 {
+  font-size: 0.95rem;
+  margin: 0 0 0.75rem;
+}
+
+.integrityInfo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.fingerprint {
+  font-family: monospace;
+}
+
+/* Certificate Actions */
+
+.certActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.copyLinkBtn,
+.viewPublicBtn,
+.revokeBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-decoration: none;
+}
+
+.copyLinkBtn {
+  background: var(--accent);
+  color: white;
+  border: none;
+}
+
+.copyLinkBtn:hover {
+  background: var(--accent-dark);
+}
+
+.viewPublicBtn {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.viewPublicBtn:hover {
+  background: var(--bg-subtle);
+}
+
+.revokeBtn {
+  background: transparent;
+  color: var(--error);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  margin-left: auto;
+}
+
+.revokeBtn:hover {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* Responsive */
+
+@media (max-width: 768px) {
+  .container {
+    padding: 1rem;
+  }
+
+  .header {
+    flex-direction: column;
+  }
+
+  .formGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .rulesHeader,
+  .rulesRow {
+    grid-template-columns: 1fr 0.75fr 0.5fr;
+  }
+
+  .rulesHeader span:nth-child(2),
+  .rulesRow span:nth-child(2) {
+    display: none;
+  }
+
+  .profileActions {
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .actionButtons {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .evidenceHeader,
+  .evidenceRow {
+    grid-template-columns: 1fr 0.75fr 0.75fr;
+  }
+
+  .evidenceHeader span:nth-child(2),
+  .evidenceRow span:nth-child(2) {
+    display: none;
+  }
+}

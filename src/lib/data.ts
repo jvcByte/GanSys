@@ -14,3 +14,24 @@ export * from "./services/snapshot.service";
 export * from "./services/device-sync.service";
 export * from "./services/pest.service";
 export * from "./services/scheduled-command.service";
+
+// Passport exports (renamed to avoid conflict with auth.service updateProfile)
+export {
+  getPassportOverview,
+  getPassportProfile,
+  createProfile,
+  deleteProfile,
+  issueCertificate,
+  revokeCertificate,
+  getCertificate,
+  previewCompliance,
+  type PassportProfileView,
+  type PassportOverview,
+  type CertificateView,
+  type CreateProfileInput,
+  type UpdateProfileInput,
+  type IssuanceResult,
+  type CompliancePreviewResult,
+} from "./services/passport.service";
+
+export { updateProfile as updatePassportProfile } from "./services/passport.service";

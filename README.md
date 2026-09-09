@@ -212,3 +212,126 @@ Recommended production shape:
 - MQTT async handling was corrected so broker-driven updates await their snapshots properly
 - global, route-level, and section-scoped error boundaries were added
 - dashboard failures are now more localized instead of always replacing the whole active route segment
+
+## Food Safety Passports
+
+GanSystems supports export compliance certificates for food safety. The passport system allows farms to generate cryptographic certificates proving their produce meets specified water quality standards over a defined time window.
+
+### Features
+
+- **Compliance Profiles**: Define product, destination, and telemetry channels to monitor
+- **Automated Evaluation**: Server-side compliance checking against configured ranges
+- **Cryptographic Certificates**: HMAC-SHA256 signed certificates with version tracking
+- **Public Verification**: Shareable verification page with QR code support
+- **Integrity Protection**: Hash and signature verification detects tampering
+
+### Profile Setup
+
+1. Navigate to **Passports** in the dashboard sidebar
+2. Click **Create Profile**
+3. Configure:
+   - Profile name (e.g., "Tomato Export to EU")
+   - Product name
+   - Destination market
+   - Lookback window (24–720 hours)
+   - Maximum data age / freshness requirement (5–1440 minutes)
+4. Add compliance rules:
+   - Select numeric sensor channels (pH, temperature, turbidity, etc.)
+   - Set allowed min/max ranges for each parameter
+   - Suggested bands are pre-filled for water_ph, water_temperature, turbidity
+
+### Issuing Certificates
+
+1. Ensure all rules show **Compliant** status
+2. Profile must be **Enabled**
+3. Click **Issue Certificate**
+4. Certificate is generated with:
+   - Immutable snapshot of compliance data
+   - Cryptographic signature
+   - Unique verification URL
+
+### Verification
+
+Certificates can be verified at:
+
+```text
+/verify/{certificate_id}
+```
+
+The verification page shows:
+
+- Certificate status (VALID, REVOKED, TAMPERED, NOT_FOUND, VERIFICATION_UNAVAILABLE)
+- Issuer and farm information
+- Compliance evidence table
+- Integrity block (version, algorithm, fingerprint)
+
+### Certificate States
+
+| State | Meaning |
+|-------|---------|
+| VALID | Certificate is authentic and not revoked |
+| REVOKED | Certificate has been revoked by issuer |
+| TAMPERED | Hash or signature verification failed |
+| NOT_FOUND | No certificate exists with this ID |
+| VERIFICATION_UNAVAILABLE | Signing secret not configured on server |
+
+### Key Rotation Policy
+
+**v1 uses a single signing key (`key_v1`)**:
+
+- Changing `PASSPORT_SIGNING_SECRET` invalidates all existing signatures
+- Multi-key rotation (`signatureKeyId` field) is a documented future extension
+- Keep the secret secure and backed up — loss prevents verification of existing certificates
+
+### Environment Variables
+
+```bash
+# Required for certificate signing
+PASSPORT_SIGNING_SECRET=your-secure-random-string
+
+# Optional - used for QR code generation
+PASSPORT_PUBLIC_URL=https://your-domain.com
+```
+
+Generate a secure secret:
+
+```bash
+openssl rand -hex 32
+```
+
+### Transaction Strategy
+
+The passport service uses a driver-aware transaction strategy:
+
+- **postgres-js (local/Railway)**: Uses `db.transaction()` for atomic operations
+- **Neon HTTP driver**: Falls back to ordered writes with optimistic `profileVersion` guard
+
+This ensures data integrity regardless of database driver limitations.
+
+### API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/passports` | List profiles and certificates |
+| POST | `/api/passports` | Create profile |
+| GET | `/api/passports/:id` | Get profile with compliance status |
+| PATCH | `/api/passports/:id` | Update profile |
+| DELETE | `/api/passports/:id` | Delete profile (certificates preserved) |
+| POST | `/api/passports/:id/issue` | Issue certificate |
+| POST | `/api/passports/preview` | Evaluate unsaved rules (profile form preview) |
+| GET | `/api/passports/certificates/:id` | Get certificate details |
+| POST | `/api/passports/certificates/:id?action=revoke` | Revoke certificate |
+
+### Database Schema
+
+Three tables support passports:
+
+- `passport_profiles` - User-defined compliance profiles
+- `passport_profile_channels` - Channel rules with min/max bounds
+- `passport_certificates` - Issued certificates with snapshots and signatures
+
+Run migrations to create tables:
+
+```bash
+npm run migrate
+```
